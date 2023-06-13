@@ -1,0 +1,32 @@
+dir, A better directory lister.
+    dir {flags} {start path}{/}{}filemask}
+
+    Flags are denoted by -, but many can also be denoted, DOS-style, as switches with /
+
+    o = sort order.  - to reverse.  n == name, t or x == extension/type, d == modified, s == size
+    e.g. /o-n lists in reverse alpha.
+
+    d = List Directories.  /d+ is ONLY list directories, /d- is DON'T include them.
+    h- = hide hidden files.  They are shown by default.
+    r = recurse subdirectories (i.e. /s in MS-DOS.)
+    cs = turn case-sensitivity on for both sorting and masking.
+    G{-} = turn colors on or off.  If LS_COLORS is defined, colors AND audio/image/archive colors default to on, using those.  
+           Override this with G-.  If you don't have LS_COLORS, or you don't want enhanced colors, defaults can be used with G.
+           If you do want enhanced colors but don't have LS_COLORS, G+ will force the defaults.
+           
+           Note that this ignores extension-configuration of LS_COLORS, e.g. export LS_COLORS=$LS_COLORS:"*.ogg=01;35":"*.mp3=01;35"
+           Instead we have a custom extension to it, ac for archives, au for audio and im for image/video files.
+    b{+} = bare (filenames only, e.g. for use with xargs or other inputs.)  b+ includes the path to the filename.
+    t = Totals only, no filenames/listing.
+
+Other output commands:
+    debug == Print debug messages.    
+    errors == show all error messages; usually they're quiet.
+    version == print the version (probably the build date)
+
+    Both -debug and -error should be first on the cmd line, as they don't take effect until parsed.
+
+    Note, if you're coming from DOS, that you may have to quote wildcards to prevent zshell/bash from globbing (interpreting - also called expansion) them.
+    Globbing is what lets ~ equate to $HOME, and a lot of other niceties, but zsh pretty aggressively does it by default
+    Or preface the command with noglob, perhaps in an alias.  
+
