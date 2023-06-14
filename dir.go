@@ -34,37 +34,60 @@ type Attributes string
 type InclusionMod string
 
 const (
-	SORT_NAME    sortfield    = "n"
-	SORT_DATE    sortfield    = "d" // Sort by last modified.
-	SORT_SIZE    sortfield    = "s"
-	SORT_TYPE    sortfield    = "e" // Extension in DOS
-	SORT_NATURAL sortfield    = "o" // Don't sort
-	DIR          Attributes   = "D"
-	HIDDEN       Attributes   = "H"
-	READONLY     Attributes   = "R"
-	INCLUDE      InclusionMod = "+"
-	EXCLUDE      InclusionMod = "-"
+	SORT_NAME    sortfield = "n"
+	SORT_DATE    sortfield = "d" // Sort by last modified.
+	SORT_SIZE    sortfield = "s"
+	SORT_TYPE    sortfield = "e" // Uses mod and knowledge of extensions to group, e.g. image, archive, code, document
+	SORT_EXT     sortfield = "x" // Extension in DOS
+	SORT_NATURAL sortfield = "o" // Don't sort
 )
 
-const (
-	// By convension, but not typically part of LS_COLORS, archives are bold red, audio is cyan, media and some others are bold magenta.
-	audioExtensions = ",aac,au,flac,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,spx,xspf,"
-	// dmg is clearly an archive, so added here.
-	archiveExtensions = ",dmg,tar,tgz,arj,taz,lzh,lzma,tlz,txz,zip,z,Z,dz,gz,lz,xz,bz2,bz,tbz,tbz2,tz,deb,rpm,jar,rar,ace,zoo,cpio,7z,rz,"
-	imageExtensions   = ",jpg,jpeg,gif,bmp,pbm,pgm,ppm,tga,xbm,xpm,tif,tiff,png,svg,svgz,mng,pcx,mov,mpg,mpeg,m2v,mkv,ogm,mp4,m4v,mp4v,vob,qt,nuv,wmv,asf,rm,rmvb,flc,avi,fli,flv,gl,dl,xcf,xwd,yuv,cgm,emf,axv,anx,ogv,ogx,"
+type Filetype int
+
+const ( // Filetypes
+	NONE  Filetype = iota // starts at 0, also used for reset
+	AUDIO                 // 1 ...
+	ARCHIVE
+	IMAGE
+	DOCUMENT // Enhanced start here
+	DATA
+	CONFIG
+	CODE
+	DIRECTORY // No extensions
+	EXECUTABLE
+	SYMLINK // No extensions
+	HIDDEN  // Prefix, not suffix.  Matches DEFAULT unless set otherwise.  Last so other types override on colors.
+	DEFAULT
 )
 
-var ( // Color settings.
-	// For reference: red 31, green 32, yellow 33, blue 34, ...
-	color_reset      = "0"
-	color_dir        = "1;36"
-	color_file       = "37"
-	color_executable = "31"
-	color_symlink    = "35"
-	color_archives   = "01;31"
-	color_images     = "01;35"
-	color_audio      = "00;36"
-)
+func (ft Filetype) String() string {
+	return [...]string{"None", "Audio", "Archive", "Image/Video", "Document", "Data", "Configuration", "Source Code", "Directory", "Executable", "SymLink", "Hidden", "Default"}[ft]
+}
+
+// Notes: See https://docs.fileformat.com for a great list.  Some are value judgements.
+var Extensions = map[Filetype]string{
+	AUDIO:   ",aac,au,flac,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,spx,xspf,",
+	ARCHIVE: ",7z,ace,apk,arj,bz,bz2,cpio,deb,dmg,dz,gz,jar,lz,lzh,lzma,rar,rpm,rz,tar,taz,tbz,tbz2,tgz,tlz,txz,tz,xz,z,Z,zip,zoo,",
+	IMAGE:   ",anx,asf,avi,axv,bmp,cgm,dib,dl,emf,flc,fli,flv,gif,gl,jpeg,jpg,m2v,m4v,mkv,mng,mov,mp4,mp4v,mpeg,mpg,nuv,ogm,ogv,ogx,pbm,pcx,pgm,png,ppm,qt,rm,rmvb,svg,svgz,tga,tif,tiff,vob,wmv,xbm,xcf,xpm,xwd,yuv,",
+	// The following are "Enhanced" options.
+	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mobi,msg,odt,ofx,one,pdf,ppt,pptx,ps,pub,tex,txt,xls,xlsx,",
+	DATA:     ",cdb,csv,dat,db3,dbf,graphql,json,log,rpt,sdf,sql,xml,",
+	CONFIG:   ",adp,ant,cfg,confit,ini,prefs,rc,tcl,yaml,",
+	CODE:     ",ahk,applescript,asm,au3,bas,bash,bat,c,cmake,cmd,coffee,cpp,cs,cxx,dockerfile,elf,es,exe,go,gradle,groovy,gvy,h,hpp,hxx,inc,ino,java,js,kt,ktm,kts,lua,m,mak,mm,perl,ph,php,pl,pp,ps1,psm1,py,rake,rb,rbw,rbuild,rbx,rs,ru,ruby,scpt,sh,ts,tsx,v,vb,vbs,vhd,vhdl,zsh,",
+}
+
+// By convention, but not typically part of LS_COLORS, archives are bold red, audio is cyan, media and some others are bold magenta.
+// Colors that get mapped to extensions.
+// 00=none, 01=bold, 04=underscore, 05=blink, 07=reverse, 08=concealed.
+// FG: 30=black, 31=red, 32=green, 33=yellow, 34=blue, 35=magenta, 36=cyan, 37=white,
+// BG: 40=black 41=red 42=green 43=yellow 44=blue 45=magenta 46=cyan 47=white
+var FileColors = map[Filetype]string{
+	NONE: "0", DIRECTORY: "1;36", DEFAULT: "37",
+	EXECUTABLE: "31", SYMLINK: "35", ARCHIVE: "01;31", IMAGE: "01;35", AUDIO: "00;36",
+	// Extensions
+	DOCUMENT: "01;32", DATA: "32", CONFIG: "01;37", CODE: "01;34",
+}
+
 var ( // Runtime configuration
 	show_errors              = false
 	debug_messages           = false
@@ -106,6 +129,35 @@ type fileitem struct {
 	Isdir    bool
 	mode     fs.FileMode
 	LinkDest string
+	_ft      Filetype // Holds the filetype once initialized.  Use .FileType() instead.
+}
+
+// Returns the extension based file type, or DIR/SYMLINK/EXE if appropriate.
+// The rest of the fileitem should already be filled in.
+func (f *fileitem) FileType() Filetype {
+	if f._ft != NONE {
+		return f._ft
+	}
+	if f.Isdir {
+		f._ft = DIRECTORY
+	} else if f.mode&0111 != 0 { // i.e. any executable bit set
+		f._ft = EXECUTABLE
+	} else {
+		for ft := AUDIO; ft <= CODE; ft++ {
+			if strings.Contains(Extensions[ft], ","+strings.ToLower(f.Extension()+",")) {
+				f._ft = ft
+				break
+			}
+		}
+	}
+	// Hidden comes last, because it's less important than others for colors.
+	if f._ft == NONE && f.Name[0] == '.' {
+		f._ft = HIDDEN
+	}
+	if f._ft == NONE { // If not set yet, at least we tried
+		f._ft = DEFAULT
+	}
+	return f._ft
 }
 
 // Does this file meet current conditions for inclusion?
@@ -134,46 +186,21 @@ func fileMeetsConditions(target fs.DirEntry) bool {
 
 func (f fileitem) Extension() string {
 	lastdot := strings.LastIndex(f.Name, ".")
-	if lastdot <= 1 {
-		return ""
-	}
-	return strings.ToUpper(f.Name[lastdot+1:])
+	return ternaryString(lastdot <= 1, "", strings.ToUpper(f.Name[lastdot+1:]))
 }
 
 func (f fileitem) ModeToString() string {
 	// Three sets - owner, group, default.
 	var rwx strings.Builder
-	if f.Isdir {
-		rwx.WriteString("d")
-	} else if len(f.LinkDest) > 0 {
-		rwx.WriteString("l")
-	} else {
-		rwx.WriteString("-")
-	}
+	rwx.WriteString(ternaryString(f.Isdir, "d", ternaryString(len(f.LinkDest) > 0, "l", "-")))
 	for i := 2; i >= 0; i-- {
 		bits := f.mode >> (i * 3)
-		if bits&4 != 0 {
-			rwx.WriteString("r")
-		} else {
-			rwx.WriteString("-")
-		}
-		if bits&2 != 0 {
-			rwx.WriteString("w")
-		} else {
-			rwx.WriteString("-")
-		}
+		rwx.WriteString(ternaryString(bits&4 != 0, "r", "-"))
+		rwx.WriteString(ternaryString(bits&2 != 0, "w", "-"))
 		if i == 0 && f.mode&os.ModeSticky != 0 {
-			if bits&1 != 0 {
-				rwx.WriteString("t")
-			} else {
-				rwx.WriteString("T")
-			}
+			rwx.WriteString(ternaryString(bits&1 != 0, "t", "T"))
 		} else {
-			if bits&1 != 0 {
-				rwx.WriteString("x")
-			} else {
-				rwx.WriteString("-")
-			}
+			rwx.WriteString(ternaryString(bits&1 != 0, "x", "-"))
 		}
 	}
 	return rwx.String()
@@ -192,22 +219,11 @@ func (f fileitem) ToString() string {
 	linktext := ternaryString(len(f.LinkDest) > 0, "-> "+f.LinkDest, "")
 
 	if use_colors {
-		if f.Isdir {
-			colorstr = colorSetString(color_dir)
-		} else if len(f.LinkDest) > 1 {
-			colorstr = colorSetString(color_symlink)
-		} else if f.mode&0111 != 0 { // i.e. any executable bit set
-			colorstr = colorSetString(color_executable)
-		} else if use_enhanced_colors && strings.Contains(audioExtensions, ","+strings.ToLower(f.Extension()+",")) {
-			colorstr = colorSetString(color_audio)
-		} else if use_enhanced_colors && strings.Contains(imageExtensions, ","+strings.ToLower(f.Extension()+",")) {
-			colorstr = colorSetString(color_images)
-		} else if use_enhanced_colors && strings.Contains(archiveExtensions, ","+strings.ToLower(f.Extension()+",")) {
-			colorstr = colorSetString(color_archives)
+		colorstr = colorSetString(f.FileType())
+		if !use_enhanced_colors && f.FileType() >= DOCUMENT && f.FileType() < DIRECTORY {
+			colorstr = colorSetString(DEFAULT) // Because not enhanced.
 		}
-		if len(colorstr) > 0 {
-			colorreset = colorSetString(color_reset)
-		}
+		colorreset = colorSetString(NONE)
 	}
 	return fmt.Sprintf("%s%s   %s %14d   %s%s%s", colorstr, f.ModeToString(), f.Modified.Format("2006-01-02 15:04:05"), f.Size, name, linktext, colorreset)
 }
@@ -217,7 +233,7 @@ func makefileitem(de fs.DirEntry, path string) fileitem {
 	link, _ := os.Readlink(filepath.Join(path, de.Name()))
 	i, e := de.Info()
 	if e == nil {
-		item = fileitem{path, i.Name(), i.Size(), i.ModTime(), i.IsDir(), i.Mode(), link}
+		item = fileitem{path, i.Name(), i.Size(), i.ModTime(), i.IsDir(), i.Mode(), link, NONE}
 	}
 	return item
 }
@@ -229,8 +245,11 @@ func makefileitem(de fs.DirEntry, path string) fileitem {
    Color: 30=black, 31=red, 32=green, 33=yellow, 34=blue, 35=magenta, 36=cyan, 37=white.
 */
 
-func colorSetString(colorstr string) string {
-	return fmt.Sprintf("\033[%sm", colorstr)
+func colorSetString(ftype Filetype) string {
+	if len(FileColors[ftype]) == 0 {
+		ftype = DEFAULT
+	}
+	return fmt.Sprintf("\033[%sm", FileColors[ftype])
 }
 
 // Read the LS_COLORS variable and turn into our settings for coloring.
@@ -245,21 +264,25 @@ func mapColors() {
 		if len(components) < 2 {
 			continue
 		}
+		var ft Filetype
 		switch components[0] {
 		case "ac":
-			color_archives = components[1]
+			ft = ARCHIVE
 		case "au":
-			color_audio = components[1]
+			ft = AUDIO
 		case "di":
-			color_dir = components[1]
+			ft = DIRECTORY
 		case "ex":
-			color_executable = components[1]
+			ft = EXECUTABLE
 		case "fi":
-			color_file = components[1]
+			ft = DEFAULT
 		case "im":
-			color_images = components[1]
+			ft = IMAGE
 		case "ln":
-			color_symlink = components[1]
+			ft = SYMLINK
+		}
+		if ft != NONE { // i.e. it was set; we don't change "reset"
+			FileColors[ft] = components[1]
 		}
 	}
 }
@@ -306,6 +329,8 @@ func list_directory(target string, recursed bool) (err error) {
 		sort.Slice(matchedFiles, func(i, j int) bool {
 			first := matchedFiles[i]
 			second := matchedFiles[j]
+			firstName := ternaryString(case_sensitive, first.Name, strings.ToUpper(first.Name))
+			secondName := ternaryString(case_sensitive, second.Name, strings.ToUpper(second.Name))
 			if !sortby.ascending {
 				first = matchedFiles[j]
 				second = matchedFiles[i]
@@ -315,22 +340,22 @@ func list_directory(target string, recursed bool) (err error) {
 			}
 			switch sortby.field {
 			case SORT_NAME:
-				if case_sensitive {
-					return first.Name < second.Name
-				} else {
-					return strings.ToUpper(first.Name) < strings.ToUpper(second.Name)
-				}
+				return firstName < secondName
 			case SORT_DATE:
 				return first.Modified.Before(second.Modified)
 			case SORT_SIZE:
 				return first.Size < second.Size
 			case SORT_TYPE:
+				if first.FileType() != second.FileType() {
+					return first.FileType() < second.FileType()
+				}
+				if first.Extension() != second.Extension() {
+					return first.Extension() < second.Extension()
+				}
+				return firstName < secondName
+			case SORT_EXT:
 				if first.Extension() == second.Extension() {
-					if case_sensitive {
-						return first.Name < second.Name
-					} else {
-						return strings.ToUpper(first.Name) < strings.ToUpper(second.Name)
-					}
+					return firstName < secondName
 				}
 				return first.Extension() < second.Extension()
 			}
@@ -454,9 +479,13 @@ func parseCmdLine() {
 				sortby = sortorder{SORT_DATE, true}
 			case "o-d":
 				sortby = sortorder{SORT_DATE, false}
-			case "ox", "ot":
+			case "ox":
+				sortby = sortorder{SORT_EXT, true}
+			case "o-x":
+				sortby = sortorder{SORT_EXT, false}
+			case "ot":
 				sortby = sortorder{SORT_TYPE, true}
-			case "o-x", "o-t":
+			case "o-t":
 				sortby = sortorder{SORT_TYPE, false}
 			case "os":
 				sortby = sortorder{SORT_SIZE, true}
@@ -516,6 +545,12 @@ func parseCmdLine() {
 func main() {
 	mapColors() // This must come before parseCmdLine(), to allow suppression.
 	parseCmdLine()
+	if debug_messages {
+		for c := NONE; c <= DEFAULT; c++ {
+			fmt.Printf("Color for %16s is %s\n", c.String(), FileColors[c])
+		}
+	}
+
 	if len(start_directory) == 0 || start_directory == "." {
 		start_directory, _ = os.Getwd()
 	}

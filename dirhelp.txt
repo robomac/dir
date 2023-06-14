@@ -2,9 +2,10 @@ dir, A better directory lister.
     dir {flags} {start path}{/}{}filemask}
 
     Flags are denoted by -, but many can also be denoted, DOS-style, as switches with /
-
-    o = sort order.  - to reverse.  n == name, t or x == extension/type, d == modified, s == size
+ 
+    o = sort order.  - to reverse.  n == name, t == type, x == extension, d == modified, s == size
     e.g. /o-n lists in reverse alpha.
+    type lumps by extension classification, if found, and then by extension and name.
 
     d = List Directories.  /d+ is ONLY list directories, /d- is DON'T include them.
     ah- = hide hidden files.  They are shown by default.
