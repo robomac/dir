@@ -7,7 +7,7 @@ dir, A better directory lister.
     e.g. /o-n lists in reverse alpha.
 
     d = List Directories.  /d+ is ONLY list directories, /d- is DON'T include them.
-    h- = hide hidden files.  They are shown by default.
+    ah- = hide hidden files.  They are shown by default.
     r = recurse subdirectories (i.e. /s in MS-DOS.)
     cs = turn case-sensitivity on for both sorting and masking.
     G{-} = turn colors on or off.  If LS_COLORS is defined, colors AND audio/image/archive colors default to on, using those.  

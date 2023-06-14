@@ -113,6 +113,10 @@ func fileMeetsConditions(target fs.DirEntry) bool {
 	if (!listdirectories) && target.IsDir() {
 		return false
 	}
+	if (!listfiles) && !target.IsDir() {
+		return false
+	}
+
 	filename := target.Name()
 	if (!listhidden) && filename[0] == '.' {
 		return false
@@ -340,7 +344,7 @@ func list_directory(target string, recursed bool) (err error) {
 			fmt.Printf("\n")
 		}
 	}
-	if listfiles {
+	if listfiles || listdirectories {
 		for _, f := range matchedFiles {
 			fmt.Println(f.ToString())
 		}
@@ -462,7 +466,8 @@ func parseCmdLine() {
 				listdirectories = false
 			case "d+":
 				listfiles = false
-			case "h-":
+				listdirectories = true
+			case "ah-":
 				listhidden = false
 			case "r":
 				recurse_directories = true
