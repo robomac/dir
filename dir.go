@@ -69,7 +69,7 @@ func (ft Filetype) String() string {
 var Extensions = map[Filetype]string{
 	AUDIO:   ",aac,au,flac,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,spx,xspf,",
 	ARCHIVE: ",7z,ace,apk,arj,bz,bz2,cpio,deb,dmg,dz,gz,jar,lz,lzh,lzma,rar,rpm,rz,tar,taz,tbz,tbz2,tgz,tlz,txz,tz,xz,z,Z,zip,zoo,",
-	IMAGE:   ",anx,asf,avi,axv,bmp,cgm,dib,dl,emf,flc,fli,flv,gif,gl,jpeg,jpg,m2v,m4v,mkv,mng,mov,mp4,mp4v,mpeg,mpg,nuv,ogm,ogv,ogx,pbm,pcx,pgm,png,ppm,qt,rm,rmvb,svg,svgz,tga,tif,tiff,vob,wmv,xbm,xcf,xpm,xwd,yuv,",
+	IMAGE:   ",anx,asf,avi,axv,bmp,cgm,dib,dl,emf,flc,fli,flv,gif,gl,jpeg,jpg,m2v,m4v,mkv,mng,mov,mp4,mp4v,mpeg,mpg,nuv,ogm,ogv,ogx,pbm,pcx,pdn,pgm,png,ppm,qt,rm,rmvb,svg,svgz,tga,tif,tiff,vob,wmv,xbm,xcf,xpm,xwd,yuv,",
 	// The following are "Enhanced" options.
 	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mobi,msg,odt,ofx,one,pdf,ppt,pptx,ps,pub,tex,txt,xls,xlsx,",
 	DATA:     ",cdb,csv,dat,db3,dbf,graphql,json,log,rpt,sdf,sql,xml,",
@@ -496,15 +496,8 @@ func parseCmdLine() {
 				sortby = sortorder{SORT_SIZE, true}
 			case "o-s":
 				sortby = sortorder{SORT_SIZE, false}
-			case "d-":
-				listdirectories = false
-			case "d+":
-				listfiles = false
-				listdirectories = true
 			case "ah-":
 				listhidden = false
-			case "r":
-				recurse_directories = true
 			case "cs":
 				case_sensitive = true
 			case "b+":
@@ -517,8 +510,15 @@ func parseCmdLine() {
 				size_calculations = false
 				directory_header = false
 				include_path = false
-			case "t":
+			case "d+":
 				listfiles = false
+				listdirectories = true
+			case "d-":
+				listdirectories = false
+			case "debug":
+				debug_messages = true
+			case "error":
+				show_errors = true
 			case "G-":
 				use_colors = false
 			case "G":
@@ -527,10 +527,10 @@ func parseCmdLine() {
 			case "G+":
 				use_colors = true
 				use_enhanced_colors = true
-			case "debug":
-				debug_messages = true
-			case "error":
-				show_errors = true
+			case "r":
+				recurse_directories = true
+			case "t":
+				listfiles = false
 			case "version":
 				fmt.Println(versionDate)
 			}
