@@ -16,6 +16,7 @@ import (
 /*
 Enhancements to make:
 Size - if more than 6 digits, take to 5+{KB|MB|GB}.  3.2 format.  Override with parameter.
+Allow defining type sort order.  Change current order, which has archives first.
 */
 
 // DO NOT DELETE THIS "COMMENT"; it includes the file.
@@ -75,6 +76,10 @@ var Extensions = map[Filetype]string{
 	CONFIG:   ",adp,ant,cfg,confit,ini,prefs,rc,tcl,yaml,",
 	CODE:     ",ahk,applescript,asm,au3,bas,bash,bat,c,cmake,cmd,coffee,cpp,cs,cxx,dockerfile,elf,es,exe,go,gradle,groovy,gvy,h,hpp,hxx,inc,ino,java,js,kt,ktm,kts,lua,m,mak,mm,perl,ph,php,pl,pp,ps1,psm1,py,rake,rb,rbw,rbuild,rbx,rs,ru,ruby,scpt,sh,ts,tsx,v,vb,vbs,vhd,vhdl,zsh,",
 }
+
+// Could use a slice here, since it's indexing in by int, but naming the spots makes it clearer.
+var FileTypeSortOrder = map[Filetype]int{DIRECTORY: 0, HIDDEN: 1, NONE: 2, DEFAULT: 3, CODE: 4, EXECUTABLE: 5, CONFIG: 6,
+	DATA: 7, DOCUMENT: 8, AUDIO: 9, IMAGE: 10, ARCHIVE: 11}
 
 // By convention, but not typically part of LS_COLORS, archives are bold red, audio is cyan, media and some others are bold magenta.
 // Colors that get mapped to extensions.
@@ -347,7 +352,7 @@ func list_directory(target string, recursed bool) (err error) {
 				return first.Size < second.Size
 			case SORT_TYPE:
 				if first.FileType() != second.FileType() {
-					return first.FileType() < second.FileType()
+					return FileTypeSortOrder[first.FileType()] < FileTypeSortOrder[second.FileType()]
 				}
 				if first.Extension() != second.Extension() {
 					return first.Extension() < second.Extension()
