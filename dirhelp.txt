@@ -10,7 +10,14 @@ dir, A better directory lister.
     d = List Directories.  /d+ is ONLY list directories, /d- is DON'T include them.
     ah- = hide hidden files.  They are shown by default.
     r = recurse subdirectories (i.e. /s in MS-DOS.)
-    cs = turn case-sensitivity on for both sorting and masking.
+    z = recurse into archives (zip, tgz, tar.gz, 7z files.)  Not all archive formats are supported, 
+        not all compression nor nested archives, and of course no support for encrypted archives.
+        A single archive can be searched by specifying it, including the extension, plus a slash and the 
+        file spec.  
+        e.g. dir -z ~/Downloads/big.zip/readme* will find all readme* files in big.zip.
+        e.g. dir -z ~/Downloads/readme*  will find all readme* files in all archives in Downloads.
+
+    cs = turn case-sensitivity on for both sorting and masking.  
     G{-} = turn colors on or off.  If LS_COLORS is defined, colors AND audio/image/archive colors default to on, using those.  
            Override this with G-.  If you don't have LS_COLORS, or you don't want enhanced colors, defaults can be used with G.
            If you do want enhanced colors but don't have LS_COLORS, G+ will force the defaults.

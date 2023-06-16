@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	_ "embed"
 	"fmt"
 	"io/fs"
@@ -10,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bodgit/sevenzip"
 	"github.com/gobwas/glob"
 )
 
@@ -17,6 +21,11 @@ import (
 Enhancements to make:
 Size - if more than 6 digits, take to 5+{KB|MB|GB}.  3.2 format.  Override with parameter.
 Allow defining type sort order.  Change current order, which has archives first.
+Add ability to list files inside archives.  rar, gz, zip,7z, dmg.  Requires command.  Works with either specified name or recursive
+
+For Archive support, change fileMeetsConditions to use fileitem rather than DirEntry,
+pass that around.
+
 */
 
 // DO NOT DELETE THIS "COMMENT"; it includes the file.
@@ -24,7 +33,7 @@ Allow defining type sort order.  Change current order, which has archives first.
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2023-06-11"
+const versionDate = "2023-06-15"
 
 type sortfield string
 type sortorder struct {
@@ -67,8 +76,8 @@ func (ft Filetype) String() string {
 
 // Notes: See https://docs.fileformat.com for a great list.  Some are value judgements.
 var Extensions = map[Filetype]string{
-	AUDIO:   ",aac,au,flac,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,spx,xspf,",
-	ARCHIVE: ",7z,ace,apk,arj,bz,bz2,cpio,deb,dmg,dz,gz,jar,lz,lzh,lzma,rar,rpm,rz,tar,taz,tbz,tbz2,tgz,tlz,txz,tz,xz,z,Z,zip,zoo,",
+	AUDIO:   ",aac,au,flac,m3u8,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,spx,xspf,",
+	ARCHIVE: ",7z,ace,apk,arj,bz,bz2,cpio,deb,dmg,dz,gz,jar,lz,lzh,lzma,msi,rar,rpm,rz,tar,taz,tbz,tbz2,tgz,tlz,txz,tz,xz,z,Z,zip,zoo,",
 	IMAGE:   ",anx,asf,avi,axv,bmp,cgm,dib,dl,emf,flc,fli,flv,gif,gl,jpeg,jpg,m2v,m4v,mkv,mng,mov,mp4,mp4v,mpeg,mpg,nuv,ogm,ogv,ogx,pbm,pcx,pdn,pgm,png,ppm,qt,rm,rmvb,svg,svgz,tga,tif,tiff,vob,wmv,xbm,xcf,xpm,xwd,yuv,",
 	// The following are "Enhanced" options.
 	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mobi,msg,odt,ofx,one,pdf,ppt,pptx,ps,pub,tex,txt,xls,xlsx,",
@@ -102,8 +111,10 @@ var ( // Runtime configuration
 	directories_first        = true
 	listdirectories     bool = true
 	listfiles           bool = true
+	listInArchives      bool = false
 	listhidden          bool = true
 	directory_header    bool = true
+	pathIsArchive       bool = false
 	size_calculations   bool = true
 	recurse_directories bool = false
 	matcher             glob.Glob
@@ -131,8 +142,8 @@ type fileitem struct {
 	Name     string // Name including any extention
 	Size     int64
 	Modified time.Time
-	Isdir    bool
-	mode     fs.FileMode
+	IsDir    bool
+	Mode     fs.FileMode
 	LinkDest string
 	_ft      Filetype // Holds the filetype once initialized.  Use .FileType() instead.
 }
@@ -143,9 +154,9 @@ func (f *fileitem) FileType() Filetype {
 	if f._ft != NONE {
 		return f._ft
 	}
-	if f.Isdir {
+	if f.IsDir {
 		f._ft = DIRECTORY
-	} else if f.mode&0111 != 0 { // i.e. any executable bit set
+	} else if f.Mode&0111 != 0 { // i.e. any executable bit set
 		f._ft = EXECUTABLE
 	} else {
 		for ft := AUDIO; ft <= CODE; ft++ {
@@ -166,15 +177,15 @@ func (f *fileitem) FileType() Filetype {
 }
 
 // Does this file meet current conditions for inclusion?
-func fileMeetsConditions(target fs.DirEntry) bool {
-	if (!listdirectories) && target.IsDir() {
+func fileMeetsConditions(target fileitem) bool {
+	if (!listdirectories) && target.IsDir {
 		return false
 	}
-	if (!listfiles) && !target.IsDir() {
+	if (!listfiles) && !target.IsDir {
 		return false
 	}
 
-	filename := target.Name()
+	filename := target.Name
 	if (!listhidden) && filename[0] == '.' {
 		return false
 	}
@@ -197,12 +208,12 @@ func (f fileitem) Extension() string {
 func (f fileitem) ModeToString() string {
 	// Three sets - owner, group, default.
 	var rwx strings.Builder
-	rwx.WriteString(ternaryString(f.Isdir, "d", ternaryString(len(f.LinkDest) > 0, "l", "-")))
+	rwx.WriteString(ternaryString(f.IsDir, "d", ternaryString(len(f.LinkDest) > 0, "l", "-")))
 	for i := 2; i >= 0; i-- {
-		bits := f.mode >> (i * 3)
+		bits := f.Mode >> (i * 3)
 		rwx.WriteString(ternaryString(bits&4 != 0, "r", "-"))
 		rwx.WriteString(ternaryString(bits&2 != 0, "w", "-"))
-		if i == 0 && f.mode&os.ModeSticky != 0 {
+		if i == 0 && f.Mode&os.ModeSticky != 0 {
 			rwx.WriteString(ternaryString(bits&1 != 0, "t", "T"))
 		} else {
 			rwx.WriteString(ternaryString(bits&1 != 0, "x", "-"))
@@ -292,17 +303,112 @@ func mapColors() {
 	}
 }
 
-/******* Core Code *******/
-// Recursive if necessary listing of files.
-func list_directory(target string, recursed bool) (err error) {
-	var files []fs.DirEntry   //	Matched files, to sort/format
-	var subdirs []fs.DirEntry // Subdirectories to recurse through
-	var matchedFiles []fileitem
-	filecount := 0
-	directorycount := 0
-	var bytesfound int64
+type ListingSet struct {
+	//	Matched files, to sort/format
+	Subdirs        []string // Subdirectories to recurse through
+	Archives       []string
+	MatchedFiles   []fileitem
+	Filecount      int
+	Directorycount int
+	Bytesfound     int64
+}
 
-	conditionalPrint(debug_messages, "Analyzing directory %s\n", target)
+func filesInZipArchive(filename string) (ListingSet, error) {
+	var ls ListingSet
+	zipReader, err := zip.OpenReader(filename)
+	if err != nil {
+		if show_errors {
+			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+		}
+		return ls, err
+	}
+	defer zipReader.Close()
+
+	for _, fileInZip := range zipReader.File {
+		var item fileitem = fileitem{filename, fileInZip.Name, int64(fileInZip.UncompressedSize64), fileInZip.ModTime(),
+			fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", NONE}
+		if fileMeetsConditions(item) {
+			ls.MatchedFiles = append(ls.MatchedFiles, item)
+			if item.IsDir {
+				ls.Directorycount++
+			} else {
+				ls.Filecount++
+				ls.Bytesfound += item.Size
+			}
+		}
+	}
+	return ls, err
+}
+
+func filesIn7ZArchive(filename string) (ListingSet, error) {
+	var ls ListingSet
+	zipReader, err := sevenzip.OpenReader(filename)
+	if err != nil {
+		if show_errors {
+			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+		}
+		return ls, err
+	}
+	defer zipReader.Close()
+
+	for _, fileInZip := range zipReader.File {
+		var item fileitem = fileitem{filename, fileInZip.Name, fileInZip.FileInfo().Size(),
+			fileInZip.Modified, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", NONE}
+		if fileMeetsConditions(item) {
+			ls.MatchedFiles = append(ls.MatchedFiles, item)
+			if item.IsDir {
+				ls.Directorycount++
+			} else {
+				ls.Filecount++
+				ls.Bytesfound += item.Size
+			}
+		}
+	}
+	return ls, err
+}
+
+func filesInTgzArchive(filename string) (ListingSet, error) {
+	var ls ListingSet
+	var gzReader *gzip.Reader
+	var tarReader *tar.Reader
+
+	file, err := os.Open(filename)
+	if err == nil {
+		defer file.Close()
+		gzReader, err = gzip.NewReader(file)
+	}
+	if err == nil {
+		defer gzReader.Close()
+		tarReader = tar.NewReader(gzReader)
+	}
+	if err != nil {
+		if show_errors {
+			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+		}
+		return ls, err
+	}
+
+	head, err := tarReader.Next()
+	for head != nil && err == nil {
+		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, false, head.FileInfo().Mode(), "", NONE}
+		if fileMeetsConditions(item) {
+			ls.MatchedFiles = append(ls.MatchedFiles, item)
+			if item.IsDir {
+				ls.Directorycount++
+			} else {
+				ls.Filecount++
+				ls.Bytesfound += item.Size
+			}
+		}
+		head, err = tarReader.Next()
+	}
+	return ls, err
+}
+
+func filesInDirectory(target string) ListingSet {
+	var ls ListingSet
+	var files []fs.DirEntry
+
 	pFile, err := os.Open(target)
 	if err == nil {
 		defer pFile.Close()
@@ -311,37 +417,65 @@ func list_directory(target string, recursed bool) (err error) {
 	// Iterate through all files, matching and then sort
 	if err == nil {
 		for _, f := range files {
-			// TODO
-			// Need to have both short name, for listing and sorting...
-			// and full name, for the subdirs values so they can be navigated to.
-			if fileMeetsConditions(f) {
-				matchedFiles = append(matchedFiles, makefileitem(f, target))
+			fi := makefileitem(f, target)
+			if fileMeetsConditions(fi) {
+				ls.MatchedFiles = append(ls.MatchedFiles, fi)
 				if f.IsDir() {
-					directorycount++
+					ls.Directorycount++
 				} else {
-					filecount++
+					ls.Filecount++
 					i, e := f.Info()
 					if e == nil {
-						bytesfound += i.Size()
+						ls.Bytesfound += i.Size()
 					}
 				}
 			}
-			if f.IsDir() && listdirectories {
-				// TODO: SHould this be the DirEntry or should it be target + os.sep + f.Name()?
-				subdirs = append(subdirs, f)
+			// Must be outside of fileMeetsConditions()
+			if fi.FileType() == ARCHIVE && listInArchives {
+				ls.Archives = append(ls.Archives, fi.Name)
 			}
+			if fi.IsDir && listdirectories && (listhidden || fi.Name[0] != '.') {
+				ls.Subdirs = append(ls.Subdirs, fi.Name)
+			}
+
 		}
-		sort.Slice(matchedFiles, func(i, j int) bool {
-			first := matchedFiles[i]
-			second := matchedFiles[j]
+	}
+	return ls
+}
+
+/******* Core Code *******/
+// Recursive if necessary listing of files.
+func list_directory(target string, recursed bool, isArchive bool) (err error) {
+	var ls ListingSet
+
+	conditionalPrint(debug_messages, "Analyzing directory %s\n", target)
+	// Iterate through all files, matching and then sort
+	if err == nil {
+		if isArchive {
+			extension := strings.ToLower(target[strings.LastIndex(target, ".")+1:])
+			if extension == "zip" {
+				ls, err = filesInZipArchive(target)
+			} else if extension == "tgz" || extension == "gz" {
+				ls, err = filesInTgzArchive(target)
+			} else if extension == "7z" {
+				ls, err = filesIn7ZArchive(target)
+			}
+		} else {
+			ls = filesInDirectory(target)
+		}
+	}
+	if err == nil {
+		sort.Slice(ls.MatchedFiles, func(i, j int) bool {
+			first := ls.MatchedFiles[i]
+			second := ls.MatchedFiles[j]
 			firstName := ternaryString(case_sensitive, first.Name, strings.ToUpper(first.Name))
 			secondName := ternaryString(case_sensitive, second.Name, strings.ToUpper(second.Name))
 			if !sortby.ascending {
-				first = matchedFiles[j]
-				second = matchedFiles[i]
+				first = ls.MatchedFiles[j]
+				second = ls.MatchedFiles[i]
 			}
-			if (directories_first) && (first.Isdir != second.Isdir) {
-				return first.Isdir
+			if (directories_first) && (first.IsDir != second.IsDir) {
+				return first.IsDir
 			}
 			switch sortby.field {
 			case SORT_NAME:
@@ -368,26 +502,33 @@ func list_directory(target string, recursed bool) (err error) {
 		})
 	}
 	// Output results.  Don't print directory header or footer if no files in a recursed directory
-	if (!recursed || len(matchedFiles) > 0) && directory_header {
+	if (!recursed || len(ls.MatchedFiles) > 0) && directory_header {
 		fmt.Printf("\n   Directory of %s\n", target)
 		if listfiles {
 			fmt.Printf("\n")
 		}
 	}
 	if listfiles || listdirectories {
-		for _, f := range matchedFiles {
+		for _, f := range ls.MatchedFiles {
 			fmt.Println(f.ToString())
 		}
 	}
-	if (!recursed || len(matchedFiles) > 0) && size_calculations {
-		fmt.Printf("   %4d Files (%d bytes) and %4d Directories.\n", filecount, bytesfound, directorycount)
+	if (!recursed || len(ls.MatchedFiles) > 0) && size_calculations {
+		fmt.Printf("   %4d Files (%d bytes) and %4d Directories.\n", ls.Filecount, ls.Bytesfound, ls.Directorycount)
 	}
 
+	if listInArchives && len(ls.Archives) > 0 {
+		conditionalPrint(debug_messages, "Listing in Archives %s\n", ls.Archives)
+		sort.Strings(ls.Archives)
+		for _, d := range ls.Archives {
+			list_directory(filepath.Join(target, d), true, true)
+		}
+	}
 	// Handle sub directories
 	if recurse_directories {
-		sort.Slice(subdirs, func(i, j int) bool { return subdirs[i].Name() < subdirs[j].Name() })
-		for _, d := range subdirs {
-			list_directory(filepath.Join(target, d.Name()), true)
+		sort.Strings(ls.Subdirs)
+		for _, d := range ls.Subdirs {
+			list_directory(filepath.Join(target, d), true, false)
 		}
 	}
 	return err
@@ -436,6 +577,14 @@ func parseFileName(param string) {
 			if d.IsDir() {
 				start_directory = dirPath
 				fileMask = param[strings.LastIndex(param, "/")+1:]
+			} else {
+				extension := "," + dirPath[strings.LastIndex(dirPath, ".")+1:] + ","
+				if strings.Contains(Extensions[ARCHIVE], extension) {
+					// Flag this as the source file to be read.
+					pathIsArchive = true
+					start_directory = dirPath
+					fileMask = param[strings.LastIndex(param, "/")+1:]
+				}
 			}
 		}
 	}
@@ -533,6 +682,8 @@ func parseCmdLine() {
 				listfiles = false
 			case "version":
 				fmt.Println(versionDate)
+			case "z":
+				listInArchives = true
 			}
 		} else {
 			parseFileName(s)
@@ -559,5 +710,5 @@ func main() {
 	if len(start_directory) == 0 || start_directory == "." {
 		start_directory, _ = os.Getwd()
 	}
-	list_directory(start_directory, false)
+	list_directory(start_directory, false, pathIsArchive)
 }
