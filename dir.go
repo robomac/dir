@@ -23,8 +23,7 @@ Size - if more than 6 digits, take to 5+{KB|MB|GB}.  3.2 format.  Override with 
 Allow defining type sort order.  Change current order, which has archives first.
 Add ability to list files inside archives.  rar, gz, zip,7z, dmg.  Requires command.  Works with either specified name or recursive
 
-For Archive support, change fileMeetsConditions to use fileitem rather than DirEntry,
-pass that around.
+If the passed item is a directory name, list the directory instead.
 
 */
 
@@ -587,6 +586,12 @@ func parseFileName(param string) {
 				}
 			}
 		}
+	}
+	// Is this actually a directory name itself?
+	d, err := os.Stat(param)
+	if err == nil && d.IsDir() {
+		start_directory = param
+		return
 	}
 	// We have a mask.  Build the globber
 	file_mask = fileMask
