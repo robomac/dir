@@ -1,5 +1,20 @@
 package main
 
+/*
+Copyright 2023, RoboMac
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 import (
 	"archive/tar"
 	"archive/zip"
@@ -24,27 +39,8 @@ import (
 	"github.com/gobwas/glob"
 )
 
-/*
-Failures:
-Not searching inside archives for text if not -z
-Not finding text in 7z.
-Not going into all archives.
-
-Enhancements to make:
-Allow defining type sort order.  Change current order, which has archives first.
-
--p : ls -p adds a slash after directory names
--m in ls is like bare with commas instead of newlines.
-
-Tried PDF file parsing.  Some (v.14?) worked, some (v1.7?) did not.  Parsers are bad.  Gave up.
-Utilize https://www.xpdfreader.com/download.html pdftotext if present.
-
-pdftotext integration
-mdfind results integration: mdfind -onlyin <dir> -name <mask> query
-other archive text search - build interface
-look in office files
-
-*/
+/* Potential Enhancements: Allow defining the type sort order.  mdfind integration on the mac, for wider file type support. */
+/* PDF Notes: None of the Go-based PDF libraries worked on newer PDF files, so using pdftotext */
 
 // DO NOT DELETE THIS "COMMENT"; it includes the file.
 //
@@ -62,37 +58,29 @@ type sizeformat int
 type Attributes string
 type InclusionMod string
 type searchtype int
-
-const (
-	SORT_NAME      sortfield  = "n"
-	SORT_DATE      sortfield  = "d" // Sort by last modified.
-	SORT_SIZE      sortfield  = "s"
-	SORT_TYPE      sortfield  = "e" // Uses mod and knowledge of extensions to group, e.g. image, archive, code, document
-	SORT_EXT       sortfield  = "x" // Extension in DOS
-	SORT_NATURAL   sortfield  = "o" // Don't sort
-	SIZE_NATURAL   sizeformat = 0   // Sizes as unformatted bytes
-	SIZE_SEPARATOR sizeformat = 1   // Sizes formatted with localconv non-monetary separator
-	SIZE_QUANTA    sizeformat = 2   // Sizes formatted with units/quanta - e.g. GB, TB...
-	SEARCH_NONE    searchtype = 0
-	SEARCH_CASE    searchtype = 1
-	SEARCH_NOCASE  searchtype = 2
-	SEARCH_REGEX   searchtype = 3
-)
-
-const PROGRAM_NOT_FOUND = "program not found"
-
 type ArchiveType int
+type Filetype int
 
 const (
-	ARCHIVE_NA = iota
+	SORT_NAME         sortfield  = "n"
+	SORT_DATE         sortfield  = "d" // Sort by last modified.
+	SORT_SIZE         sortfield  = "s"
+	SORT_TYPE         sortfield  = "e" // Uses mod and knowledge of extensions to group, e.g. image, archive, code, document
+	SORT_EXT          sortfield  = "x" // Extension in DOS
+	SORT_NATURAL      sortfield  = "o" // Don't sort
+	SIZE_NATURAL      sizeformat = 0   // Sizes as unformatted bytes
+	SIZE_SEPARATOR    sizeformat = 1   // Sizes formatted with localconv non-monetary separator
+	SIZE_QUANTA       sizeformat = 2   // Sizes formatted with units/quanta - e.g. GB, TB...
+	SEARCH_NONE       searchtype = 0
+	SEARCH_CASE       searchtype = 1
+	SEARCH_NOCASE     searchtype = 2
+	SEARCH_REGEX      searchtype = 3 // Technically, all but none become REGEX, with NOCASE being modified.
+	PROGRAM_NOT_FOUND            = "program not found"
+	ARCHIVE_NA                   = iota
 	ARCHIVE_ZIP
 	ARCHIVE_TGZ
 	ARCHIVE_7Z
-)
-
-type Filetype int
-
-const ( // Filetypes
+	// Filetypes
 	NONE  Filetype = iota // starts at 0, also used for reset
 	AUDIO                 // 1 ...
 	ARCHIVE
