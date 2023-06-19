@@ -51,7 +51,7 @@ look in office files
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2023-06-18"
+const versionDate = "2023-06-19"
 
 type sortfield string
 type sortorder struct {
