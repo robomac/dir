@@ -3,12 +3,19 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
+	"bytes"
 	"compress/gzip"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io/fs"
+	"log"
+	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -18,12 +25,24 @@ import (
 )
 
 /*
-Enhancements to make:
-Size - if more than 6 digits, take to 5+{KB|MB|GB}.  3.2 format.  Override with parameter.
-Allow defining type sort order.  Change current order, which has archives first.
-Add ability to list files inside archives.  rar, gz, zip,7z, dmg.  Requires command.  Works with either specified name or recursive
+Failures:
+Not searching inside archives for text if not -z
+Not finding text in 7z.
+Not going into all archives.
 
-If the passed item is a directory name, list the directory instead.
+Enhancements to make:
+Allow defining type sort order.  Change current order, which has archives first.
+
+-p : ls -p adds a slash after directory names
+-m in ls is like bare with commas instead of newlines.
+
+Tried PDF file parsing.  Some (v.14?) worked, some (v1.7?) did not.  Parsers are bad.  Gave up.
+Utilize https://www.xpdfreader.com/download.html pdftotext if present.
+
+pdftotext integration
+mdfind results integration: mdfind -onlyin <dir> -name <mask> query
+other archive text search - build interface
+look in office files
 
 */
 
@@ -32,23 +51,43 @@ If the passed item is a directory name, list the directory instead.
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2023-06-15"
+const versionDate = "2023-06-18"
 
 type sortfield string
 type sortorder struct {
 	field     sortfield
 	ascending bool
 }
+type sizeformat int
 type Attributes string
 type InclusionMod string
+type searchtype int
 
 const (
-	SORT_NAME    sortfield = "n"
-	SORT_DATE    sortfield = "d" // Sort by last modified.
-	SORT_SIZE    sortfield = "s"
-	SORT_TYPE    sortfield = "e" // Uses mod and knowledge of extensions to group, e.g. image, archive, code, document
-	SORT_EXT     sortfield = "x" // Extension in DOS
-	SORT_NATURAL sortfield = "o" // Don't sort
+	SORT_NAME      sortfield  = "n"
+	SORT_DATE      sortfield  = "d" // Sort by last modified.
+	SORT_SIZE      sortfield  = "s"
+	SORT_TYPE      sortfield  = "e" // Uses mod and knowledge of extensions to group, e.g. image, archive, code, document
+	SORT_EXT       sortfield  = "x" // Extension in DOS
+	SORT_NATURAL   sortfield  = "o" // Don't sort
+	SIZE_NATURAL   sizeformat = 0   // Sizes as unformatted bytes
+	SIZE_SEPARATOR sizeformat = 1   // Sizes formatted with localconv non-monetary separator
+	SIZE_QUANTA    sizeformat = 2   // Sizes formatted with units/quanta - e.g. GB, TB...
+	SEARCH_NONE    searchtype = 0
+	SEARCH_CASE    searchtype = 1
+	SEARCH_NOCASE  searchtype = 2
+	SEARCH_REGEX   searchtype = 3
+)
+
+const PROGRAM_NOT_FOUND = "program not found"
+
+type ArchiveType int
+
+const (
+	ARCHIVE_NA = iota
+	ARCHIVE_ZIP
+	ARCHIVE_TGZ
+	ARCHIVE_7Z
 )
 
 type Filetype int
@@ -79,7 +118,7 @@ var Extensions = map[Filetype]string{
 	ARCHIVE: ",7z,ace,apk,arj,bz,bz2,cpio,deb,dmg,dz,gz,jar,lz,lzh,lzma,msi,rar,rpm,rz,tar,taz,tbz,tbz2,tgz,tlz,txz,tz,xz,z,Z,zip,zoo,",
 	IMAGE:   ",anx,asf,avi,axv,bmp,cgm,dib,dl,emf,flc,fli,flv,gif,gl,jpeg,jpg,m2v,m4v,mkv,mng,mov,mp4,mp4v,mpeg,mpg,nuv,ogm,ogv,ogx,pbm,pcx,pdn,pgm,png,ppm,qt,rm,rmvb,svg,svgz,tga,tif,tiff,vob,wmv,xbm,xcf,xpm,xwd,yuv,",
 	// The following are "Enhanced" options.
-	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mobi,msg,odt,ofx,one,pdf,ppt,pptx,ps,pub,tex,txt,xls,xlsx,",
+	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mobi,msg,odt,ofx,one,pdf,ppt,pptx,ps,pub,tex,txt,vsdx,xls,xlsx,",
 	DATA:     ",cdb,csv,dat,db3,dbf,graphql,json,log,rpt,sdf,sql,xml,",
 	CONFIG:   ",adp,ant,cfg,confit,ini,prefs,rc,tcl,yaml,",
 	CODE:     ",ahk,applescript,asm,au3,bas,bash,bat,c,cmake,cmd,coffee,cpp,cs,cxx,dockerfile,elf,es,exe,go,gradle,groovy,gvy,h,hpp,hxx,inc,ino,java,js,kt,ktm,kts,lua,m,mak,mm,perl,ph,php,pl,pp,ps1,psm1,py,rake,rb,rbw,rbuild,rbx,rs,ru,ruby,scpt,sh,ts,tsx,v,vb,vbs,vhd,vhdl,zsh,",
@@ -112,18 +151,28 @@ var ( // Runtime configuration
 	listfiles           bool = true
 	listInArchives      bool = false
 	listhidden          bool = true
-	directory_header    bool = true
+	directory_header    bool = true // Print name of directory.  Usually with size_calculations
 	pathIsArchive       bool = false
-	size_calculations   bool = true
+	size_calculations   bool = true // Print directory byte totals
 	recurse_directories bool = false
+	mindate             time.Time
+	maxdate             time.Time
+	minsize             int64 = -1
+	maxsize             int64 = math.MaxInt64
 	matcher             glob.Glob
 	start_directory     string
 	file_mask           string
-	filenameParsed      bool = false
-	haveGlobber              = false
-	case_sensitive      bool = false
-	use_colors          bool = false
-	use_enhanced_colors bool = true // only applies if use_colors is on.
+	filenameParsed      bool       = false
+	haveGlobber                    = false
+	case_sensitive      bool       = false
+	filesizes_format    sizeformat = SIZE_NATURAL
+	use_colors          bool       = false
+	use_enhanced_colors bool       = true // only applies if use_colors is on.
+	text_search_type    searchtype = SEARCH_NONE
+	text_regex          *regexp.Regexp
+	PdftotextPath       string = "*" // Uninitialized
+	TotalFiles          int
+	TotalBytes          int64
 )
 
 func ternaryString(condition bool, s1 string, s2 string) string {
@@ -131,126 +180,6 @@ func ternaryString(condition bool, s1 string, s2 string) string {
 		return s1
 	}
 	return s2
-}
-
-/******* File structure and file operations *******/
-
-// Our basic list unit.
-type fileitem struct {
-	Path     string // Path to file, not including name
-	Name     string // Name including any extention
-	Size     int64
-	Modified time.Time
-	IsDir    bool
-	Mode     fs.FileMode
-	LinkDest string
-	_ft      Filetype // Holds the filetype once initialized.  Use .FileType() instead.
-}
-
-// Returns the extension based file type, or DIR/SYMLINK/EXE if appropriate.
-// The rest of the fileitem should already be filled in.
-func (f *fileitem) FileType() Filetype {
-	if f._ft != NONE {
-		return f._ft
-	}
-	if f.IsDir {
-		f._ft = DIRECTORY
-	} else if f.Mode&0111 != 0 { // i.e. any executable bit set
-		f._ft = EXECUTABLE
-	} else {
-		for ft := AUDIO; ft <= CODE; ft++ {
-			if strings.Contains(Extensions[ft], ","+strings.ToLower(f.Extension()+",")) {
-				f._ft = ft
-				break
-			}
-		}
-	}
-	// Hidden comes last, because it's less important than others for colors.
-	if f._ft == NONE && f.Name[0] == '.' {
-		f._ft = HIDDEN
-	}
-	if f._ft == NONE { // If not set yet, at least we tried
-		f._ft = DEFAULT
-	}
-	return f._ft
-}
-
-// Does this file meet current conditions for inclusion?
-func fileMeetsConditions(target fileitem) bool {
-	if (!listdirectories) && target.IsDir {
-		return false
-	}
-	if (!listfiles) && !target.IsDir {
-		return false
-	}
-
-	filename := target.Name
-	if (!listhidden) && filename[0] == '.' {
-		return false
-	}
-	// If we don't have the globber, return true.  Otherwise match it.
-	if haveGlobber {
-		if !case_sensitive {
-			// The glob pattern should already have been upper-cased.
-			return matcher.Match(strings.ToUpper(filename))
-		}
-		return matcher.Match(filename)
-	}
-	return true
-}
-
-func (f fileitem) Extension() string {
-	lastdot := strings.LastIndex(f.Name, ".")
-	return ternaryString(lastdot <= 1, "", strings.ToUpper(f.Name[lastdot+1:]))
-}
-
-func (f fileitem) ModeToString() string {
-	// Three sets - owner, group, default.
-	var rwx strings.Builder
-	rwx.WriteString(ternaryString(f.IsDir, "d", ternaryString(len(f.LinkDest) > 0, "l", "-")))
-	for i := 2; i >= 0; i-- {
-		bits := f.Mode >> (i * 3)
-		rwx.WriteString(ternaryString(bits&4 != 0, "r", "-"))
-		rwx.WriteString(ternaryString(bits&2 != 0, "w", "-"))
-		if i == 0 && f.Mode&os.ModeSticky != 0 {
-			rwx.WriteString(ternaryString(bits&1 != 0, "t", "T"))
-		} else {
-			rwx.WriteString(ternaryString(bits&1 != 0, "x", "-"))
-		}
-	}
-	return rwx.String()
-}
-
-func (f fileitem) ToString() string {
-	name := f.Name
-	if include_path {
-		name = filepath.Join(f.Path, f.Name)
-	}
-	if bare {
-		return name
-	}
-	colorstr := ""
-	colorreset := ""
-	linktext := ternaryString(len(f.LinkDest) > 0, "-> "+f.LinkDest, "")
-
-	if use_colors {
-		colorstr = colorSetString(f.FileType())
-		if !use_enhanced_colors && f.FileType() >= DOCUMENT && f.FileType() < DIRECTORY {
-			colorstr = colorSetString(DEFAULT) // Because not enhanced.
-		}
-		colorreset = colorSetString(NONE)
-	}
-	return fmt.Sprintf("%s%s   %s %14d   %s%s%s", colorstr, f.ModeToString(), f.Modified.Format("2006-01-02 15:04:05"), f.Size, name, linktext, colorreset)
-}
-
-func makefileitem(de fs.DirEntry, path string) fileitem {
-	var item fileitem
-	link, _ := os.Readlink(filepath.Join(path, de.Name()))
-	i, e := de.Info()
-	if e == nil {
-		item = fileitem{path, i.Name(), i.Size(), i.ModTime(), i.IsDir(), i.Mode(), link, NONE}
-	}
-	return item
 }
 
 /******* HANDLING COLORS *******/
@@ -302,6 +231,238 @@ func mapColors() {
 	}
 }
 
+// We only want to check for pdftotext once, only if doing text searches,
+// and only if a PDF is found.  This runs in that case.
+func resolveCommand(cmd string) string {
+	// See if it's in the execution directory
+	var path string
+	var err error
+
+	executablePath, err := os.Executable()
+	if err == nil {
+		path = filepath.Dir(executablePath)
+	}
+	path = filepath.Join(path, cmd)
+	_, e := os.Stat(path)
+	if e == nil {
+		return path
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		conditionalPrint(show_errors, "Found but could not open %s: %s\n", cmd, err.Error())
+	}
+	path, err = exec.LookPath(cmd)
+	if err == nil {
+		return path
+	}
+	return ""
+}
+
+// Does this file meet current conditions for inclusion?
+func fileMeetsConditions(target fileitem) bool {
+	if (!listdirectories) && target.IsDir {
+		return false
+	}
+	if (!listfiles) && !target.IsDir {
+		return false
+	}
+
+	filename := target.Name
+	if (!listhidden) && filename[0] == '.' {
+		return false
+	}
+
+	if !mindate.IsZero() && target.Modified.Before(mindate) {
+		return false
+	}
+	if !maxdate.IsZero() && target.Modified.After(maxdate) {
+		return false
+	}
+	if target.Size < minsize || target.Size > maxsize {
+		return false
+	}
+
+	// If we don't have the globber, return true.  Otherwise match it.
+	if haveGlobber {
+		testString := ternaryString(case_sensitive, filename, strings.ToUpper(filename))
+		if !matcher.Match(testString) {
+			return false
+		}
+	}
+
+	t_ext := target.Extension()
+	if text_search_type != SEARCH_NONE {
+		if target.InArchive {
+			if !archiveFileTextSearch(target) {
+				return false
+			}
+		} else if t_ext == "DOCX" || t_ext == "PPTX" || t_ext == "XLSX" || t_ext == "VSDX" {
+			conditionalPrint(debug_messages, "Embedded Zip text search on %s.\n", target.Name)
+			embeddedFiles, err := filesInZipArchive(filepath.Join(target.Path, target.Name), false)
+			if err != nil {
+				conditionalPrint(show_errors, "Could not unzip %s: %s\n", target.Name, err.Error())
+				return false
+			}
+			found := false
+			for _, f := range embeddedFiles.MatchedFiles {
+				var data []byte
+				data, err = extractZipFileBytes(f.Path, f.Name, 0, int(f.Size))
+				found = text_regex.Match(data)
+				if found {
+					break
+				}
+			}
+			if err != nil { // Try brute forcè
+				found = diskFileTextSearch(target)
+			}
+			if !found {
+				return false
+			}
+			// We want to fall through to brute-force on any error.  Error may be PROGRAM_NOT_FOUND
+		} else if s, e := PDFText(filepath.Join(target.Path, target.Name), false); e == nil {
+			if !text_regex.Match([]byte(s)) {
+				return false
+			}
+		} else if !diskFileTextSearch(target) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Returns an error if not opened or no utility (pdftotext)
+func PDFText(filepath string, ignoreExtension bool) (string, error) {
+	// Due to limitations of Go, I'm doing a fitness check here.
+	extension := strings.ToUpper(filepath[strings.LastIndex(filepath, ".")+1:])
+	if !ignoreExtension && extension != "PDF" {
+		return "", errors.New("not a pdf file")
+	}
+
+	// Have we already checked?
+	if PdftotextPath == "" {
+		return "", errors.New(PROGRAM_NOT_FOUND)
+	}
+	// Or do we need to initialize this value?
+	if PdftotextPath == "*" {
+		PdftotextPath = resolveCommand("pdftotext")
+		if len(PdftotextPath) == 0 {
+			conditionalPrint(debug_messages, "Could not find pdftotext.  PDF text will not be found.\n")
+			return "", errors.New(PROGRAM_NOT_FOUND)
+		}
+	}
+	// pdftotext uses - to send output to stdout.
+	cmd := exec.Command(PdftotextPath, filepath, "-")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("cmd.Run() failed with %s\n", err)
+	}
+	if stderr.Len() > 0 {
+		fmt.Printf("Got errors: %s", stderr.String())
+	}
+	return stdout.String(), err
+}
+
+// Load and search one file in the zip, with a maximum size.
+func archiveFileTextSearch(target fileitem) bool {
+	var data []byte
+	var err error
+	if target.Size > 1000000 {
+		return false
+	}
+	switch FileIsArchiveType(target.Path) {
+	case ARCHIVE_ZIP:
+		data, err = extractZipFileBytes(target.Path, target.Name, 0, int(target.Size))
+	case ARCHIVE_7Z:
+		data, err = extract7ZFileBytes(target.Path, target.Name, 0, int(target.Size))
+	case ARCHIVE_TGZ:
+		data, err = extractTgzFileBytes(target.Path, target.Name, 0, int(target.Size))
+	default:
+		// No handler found.
+		return false
+	}
+	if err != nil {
+		return false
+	}
+	var t_ext string = target.Extension()
+	if t_ext == "DOCX" || t_ext == "PPTX" || t_ext == "XLSX" || t_ext == "VSDX" || t_ext == "PDF" {
+		// Write to a temp file so we can more easily uncompress the docx or run a util on the PDF
+		var err error
+		var pfile *os.File
+		pfile, err = os.CreateTemp("", target.Name)
+		if err == nil {
+			pfilename := pfile.Name()
+			pfile.Write(data)
+			pfile.Close()
+			defer os.Remove(pfilename)
+			data = nil
+			if t_ext == "PDF" {
+				s, e := PDFText(pfile.Name(), true)
+				if e == nil {
+					return text_regex.Match([]byte(s))
+				}
+			} else { // Handle Office files - decompress and check
+				embeddedFiles, err := filesInZipArchive(pfile.Name(), false)
+				if err == nil {
+					for _, f := range embeddedFiles.MatchedFiles {
+						var data []byte
+						data, err = extractZipFileBytes(f.Path, f.Name, 0, int(f.Size))
+						if err == nil {
+							if text_regex.Match(data) {
+								return true
+							}
+						}
+					}
+				}
+			}
+		} // temp file creation success
+	} // office or pdf file
+	return text_regex.Match(data)
+}
+
+// Searches the file in chunks.
+// Returns true if the file has the text.  False on error or not found.
+func diskFileTextSearch(target fileitem) bool {
+	found_text := false
+	// Load file in blocks of 200KB for speed and memory.
+	file, err := os.Open(filepath.Join(target.Path, target.Name))
+	if err != nil {
+		conditionalPrint(show_errors, "Could not open file for text search: %s - %s\n", target.Name, err.Error())
+		return false
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	// Any "Go" purist who thought generics are a bad idea... would fail an interview at any productive company.
+	// Min() and Max() should not be this hard.  I understand the philosophy, but those philosophers are idiots
+	// who don't deserve paying jobs.
+	chunkSize := 20000
+	overlapSize := 400
+	if chunkSize > int(target.Size) {
+		chunkSize = int(target.Size)
+		overlapSize = 0
+	}
+
+	searchBuffer := make([]byte, chunkSize+overlapSize)
+
+	for !found_text {
+		n, err := reader.Read(searchBuffer[overlapSize:])
+
+		if err != nil && err.Error() != "EOF" {
+			conditionalPrint(show_errors, "Could not open file for text search: %s - %s\n", target.Name, err.Error())
+			return false
+		}
+		found_text = text_regex.Match(searchBuffer)
+
+		// Check for EOF
+		if (n < chunkSize) || n == int(target.Size) {
+			break
+		}
+	}
+	return found_text
+}
+
 type ListingSet struct {
 	//	Matched files, to sort/format
 	Subdirs        []string // Subdirectories to recurse through
@@ -312,7 +473,146 @@ type ListingSet struct {
 	Bytesfound     int64
 }
 
-func filesInZipArchive(filename string) (ListingSet, error) {
+func extractZipFileBytes(zippath string, filename string, offset int, length int) ([]byte, error) {
+	var buffer = make([]byte, length)
+	zipReader, err := zip.OpenReader(zippath)
+	if err != nil {
+		if show_errors {
+			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+		}
+		return nil, err
+	}
+	defer zipReader.Close()
+
+	for _, fileInZip := range zipReader.File {
+		if fileInZip.Name != filename {
+			continue
+		}
+		readCloser, err := fileInZip.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer readCloser.Close()
+		// Pseudo-seek - read buffer size until we get there.
+		curPos := 0
+		for curPos < offset {
+			readAmount := length
+			if readAmount+curPos > offset {
+				readAmount = offset - curPos
+				newBuf := make([]byte, readAmount)
+				readCloser.Read(newBuf)
+			} else {
+				readCloser.Read(buffer)
+			}
+			curPos += length
+		}
+		// Pseudo-Seek done.  Uggah.
+		readCloser.Read(buffer)
+		break
+	}
+	return buffer, err
+}
+
+func extract7ZFileBytes(zippath string, filename string, offset int, length int) ([]byte, error) {
+	zipReader, err := sevenzip.OpenReader(zippath)
+	if err != nil {
+		if show_errors {
+			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+		}
+		return nil, err
+	}
+	var buffer = make([]byte, length)
+
+	for _, fileInZip := range zipReader.File {
+		if fileInZip.Name != filename {
+			continue
+		}
+		readCloser, err := fileInZip.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer readCloser.Close()
+		// Pseudo-seek - read buffer size until we get there.
+		curPos := 0
+		for curPos < offset {
+			readAmount := length
+			if readAmount+curPos > offset {
+				readAmount = offset - curPos
+				newBuf := make([]byte, readAmount)
+				readCloser.Read(newBuf)
+			} else {
+				readCloser.Read(buffer)
+			}
+			curPos += length
+		}
+		// Pseudo-Seek done.  Uggah.
+		readCloser.Read(buffer)
+		break
+	}
+	return buffer, err
+}
+
+func extractTgzFileBytes(zippath string, filename string, offset int, length int) ([]byte, error) {
+	var gzReader *gzip.Reader
+	var tarReader *tar.Reader
+	var buffer = make([]byte, length)
+
+	file, err := os.Open(zippath)
+	if err == nil {
+		defer file.Close()
+		gzReader, err = gzip.NewReader(file)
+	}
+	if err == nil {
+		defer gzReader.Close()
+		tarReader = tar.NewReader(gzReader)
+	}
+	if err != nil {
+		if show_errors {
+			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+		}
+		return nil, err
+	}
+
+	// Locate file
+	head, err := tarReader.Next()
+	for head != nil && err == nil {
+		if head.Name != filename {
+			head, err = tarReader.Next()
+			continue
+		}
+		break
+	}
+	// Seek to offset
+	curPos := 0
+	for curPos < offset {
+		readAmount := length
+		if readAmount+curPos > offset {
+			readAmount = offset - curPos
+			newBuf := make([]byte, readAmount)
+			tarReader.Read(newBuf)
+		} else {
+			tarReader.Read(buffer)
+		}
+		curPos += length
+	}
+	// Pseudo-Seek done.  Uggah.  Read data
+	tarReader.Read(buffer)
+	return buffer, err
+}
+
+func FileIsArchiveType(filename string) ArchiveType {
+	extension := strings.ToLower(filename[strings.LastIndex(filename, ".")+1:])
+	if extension == "zip" {
+		return ARCHIVE_ZIP
+	} else if extension == "tgz" || extension == "gz" {
+		return ARCHIVE_TGZ
+	} else if extension == "7z" {
+		return ARCHIVE_7Z
+	}
+	return ARCHIVE_NA
+}
+
+func filesInZipArchive(filename string, checkConditions bool) (ListingSet, error) {
 	var ls ListingSet
 	zipReader, err := zip.OpenReader(filename)
 	if err != nil {
@@ -325,8 +625,8 @@ func filesInZipArchive(filename string) (ListingSet, error) {
 
 	for _, fileInZip := range zipReader.File {
 		var item fileitem = fileitem{filename, fileInZip.Name, int64(fileInZip.UncompressedSize64), fileInZip.ModTime(),
-			fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", NONE}
-		if fileMeetsConditions(item) {
+			fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
+		if !checkConditions || fileMeetsConditions(item) {
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
 				ls.Directorycount++
@@ -352,7 +652,7 @@ func filesIn7ZArchive(filename string) (ListingSet, error) {
 
 	for _, fileInZip := range zipReader.File {
 		var item fileitem = fileitem{filename, fileInZip.Name, fileInZip.FileInfo().Size(),
-			fileInZip.Modified, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", NONE}
+			fileInZip.Modified, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
 		if fileMeetsConditions(item) {
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
@@ -389,7 +689,7 @@ func filesInTgzArchive(filename string) (ListingSet, error) {
 
 	head, err := tarReader.Next()
 	for head != nil && err == nil {
-		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, false, head.FileInfo().Mode(), "", NONE}
+		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, false, head.FileInfo().Mode(), "", true, NONE}
 		if fileMeetsConditions(item) {
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
@@ -429,8 +729,9 @@ func filesInDirectory(target string) ListingSet {
 					}
 				}
 			}
-			// Must be outside of fileMeetsConditions()
-			if fi.FileType() == ARCHIVE && listInArchives {
+			// Must be outside of fileMeetsConditions().  Note we cannot use
+			// filetype, because archives may be executable.
+			if fi.IsArchive() && listInArchives {
 				ls.Archives = append(ls.Archives, fi.Name)
 			}
 			if fi.IsDir && listdirectories && (listhidden || fi.Name[0] != '.') {
@@ -451,13 +752,16 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	// Iterate through all files, matching and then sort
 	if err == nil {
 		if isArchive {
-			extension := strings.ToLower(target[strings.LastIndex(target, ".")+1:])
-			if extension == "zip" {
-				ls, err = filesInZipArchive(target)
-			} else if extension == "tgz" || extension == "gz" {
+			switch FileIsArchiveType(target) {
+			case ARCHIVE_ZIP:
+				ls, err = filesInZipArchive(target, true)
+				conditionalPrint(debug_messages, "Archive %s type zip\n", target)
+			case ARCHIVE_TGZ:
 				ls, err = filesInTgzArchive(target)
-			} else if extension == "7z" {
+				conditionalPrint(debug_messages, "Archive %s type tgz\n", target)
+			case ARCHIVE_7Z:
 				ls, err = filesIn7ZArchive(target)
+				conditionalPrint(debug_messages, "Archive %s type 7z\n", target)
 			}
 		} else {
 			ls = filesInDirectory(target)
@@ -500,6 +804,8 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 			return first.Name < second.Name
 		})
 	}
+	TotalBytes += ls.Bytesfound
+	TotalFiles += ls.Filecount
 	// Output results.  Don't print directory header or footer if no files in a recursed directory
 	if (!recursed || len(ls.MatchedFiles) > 0) && directory_header {
 		fmt.Printf("\n   Directory of %s\n", target)
@@ -513,7 +819,10 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 		}
 	}
 	if (!recursed || len(ls.MatchedFiles) > 0) && size_calculations {
-		fmt.Printf("   %4d Files (%d bytes) and %4d Directories.\n", ls.Filecount, ls.Bytesfound, ls.Directorycount)
+		fmt.Printf("   %4d Files (%s bytes) and %4d Directories.\n", ls.Filecount, FileSizeToString(ls.Bytesfound), ls.Directorycount)
+		if !recursed {
+			fmt.Printf("   %4d Total Files (%s Total Bytes) listed.", TotalFiles, FileSizeToString(TotalBytes))
+		}
 	}
 
 	if listInArchives && len(ls.Archives) > 0 {
@@ -531,176 +840,6 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 		}
 	}
 	return err
-}
-
-// Format-Print only if cond == true
-func conditionalPrint(cond bool, format string, a ...any) {
-	if cond {
-		fmt.Printf(format, a...)
-	}
-}
-
-// Choices are:
-//    Default: current directory, all files, no filtering.
-//    Passed value is a directory name - list all files in it.
-//    Passed value is a file name or wildcard pattern - list matching files.
-//	  Passed value has both.  i.e. the beginning is a directory to start in,
-//  	 with a wildcard or filename at the end.  Has a slash + content.
-
-func parseFileName(param string) {
-	fileMask := param
-	conditionalPrint((show_errors || debug_messages) && (len(start_directory) > 0 || filenameParsed),
-		"  *** WARNING: Multiple filename parameters found.  Had %s %s, now %s.\nShould you quote to avoid globbing?\n",
-		start_directory, file_mask, param)
-	conditionalPrint(debug_messages, "Parsing file name %s\n", param)
-	if strings.HasPrefix(param, "~") {
-		home, _ := os.UserHomeDir()
-		param = strings.Replace(param, "~", home, 1)
-	}
-	// Do we need to deal with a directory specification?
-	if strings.Contains(param, "/") {
-		// We have a start directory.  Do we have a file pattern?  See if this opens.
-		d, err := os.Stat(param)
-		if err == nil {
-			if d.IsDir() {
-				start_directory = param
-				// No filemask.  Done
-				conditionalPrint(debug_messages, "Parsed %s to directory, no file.\n", param)
-				return
-			}
-		}
-		// Try with just the end.
-		dirPath := param[:strings.LastIndex(param, "/")]
-		d, err = os.Stat(dirPath)
-		if err == nil {
-			if d.IsDir() {
-				start_directory = dirPath
-				fileMask = param[strings.LastIndex(param, "/")+1:]
-			} else {
-				extension := "," + dirPath[strings.LastIndex(dirPath, ".")+1:] + ","
-				if strings.Contains(Extensions[ARCHIVE], extension) {
-					// Flag this as the source file to be read.
-					pathIsArchive = true
-					start_directory = dirPath
-					fileMask = param[strings.LastIndex(param, "/")+1:]
-				}
-			}
-		}
-	}
-	// Is this actually a directory name itself?
-	d, err := os.Stat(param)
-	if err == nil && d.IsDir() {
-		start_directory = param
-		return
-	}
-	// We have a mask.  Build the globber
-	file_mask = fileMask
-	haveGlobber = true //	 We don't yet have it... we have to process all the parameters to see if case-sensitive first.
-	filenameParsed = true
-	conditionalPrint(debug_messages, "Parameter %s parsed to directory %s, file mask %s.\n", param, start_directory, file_mask)
-}
-
-func parseCmdLine() {
-	var args = os.Args[1:] // 0 is program name
-	// args is all strings that are space-separated.
-	// The filename is the only thing that doesn't start with - or /
-	for i, s := range args {
-		conditionalPrint(debug_messages, "Processing argument %d: %s.\n", i, s)
-
-		// Can't use / as flag separator if /Users, e.g., is valid
-		// There are no one-or-two character / folders.  But check for /usr vs /o-n
-		// So -*, /x, /xx and /x{+_}x are legal as parameters
-		isParam := strings.HasPrefix(s, "-") || s == "/?" || s == "/help"
-		if (!isParam) && (strings.HasPrefix(s, "/")) {
-			if len(s) == 3 {
-				isParam = true
-			} else if (len(s) == 4) && (strings.Contains(s, "-") || strings.Contains(s, "+")) {
-				isParam = true
-			}
-		}
-
-		if isParam {
-			// Linux apps often allow params to be combined on a line.  That could be
-			// tricky for /on or other multi-character flags
-			// sort: o{-}{ndstx} (t and x are both extension)
-			// header: v+ or v-
-			// Version 1 just handles them separate
-			p := s[1:]
-			switch p {
-			case "?", "h", "help", "-help", "-h":
-				fmt.Println(helptext)
-				os.Exit(0)
-			case "on":
-				sortby = sortorder{SORT_NAME, true}
-			case "o-n":
-				sortby = sortorder{SORT_NAME, false}
-			case "od":
-				sortby = sortorder{SORT_DATE, true}
-			case "o-d":
-				sortby = sortorder{SORT_DATE, false}
-			case "ox":
-				sortby = sortorder{SORT_EXT, true}
-			case "o-x":
-				sortby = sortorder{SORT_EXT, false}
-			case "ot":
-				sortby = sortorder{SORT_TYPE, true}
-			case "o-t":
-				sortby = sortorder{SORT_TYPE, false}
-			case "os":
-				sortby = sortorder{SORT_SIZE, true}
-			case "o-s":
-				sortby = sortorder{SORT_SIZE, false}
-			case "ah-":
-				listhidden = false
-			case "cs":
-				case_sensitive = true
-			case "b+":
-				bare = true
-				include_path = true
-				size_calculations = false
-				directory_header = false
-			case "b":
-				bare = true
-				size_calculations = false
-				directory_header = false
-				include_path = false
-			case "d+":
-				listfiles = false
-				listdirectories = true
-			case "d-":
-				listdirectories = false
-			case "debug":
-				debug_messages = true
-			case "error":
-				show_errors = true
-			case "G-":
-				use_colors = false
-			case "G":
-				use_colors = true
-				use_enhanced_colors = false
-			case "G+":
-				use_colors = true
-				use_enhanced_colors = true
-			case "r":
-				recurse_directories = true
-			case "t":
-				listfiles = false
-			case "version":
-				fmt.Println(versionDate)
-			case "z":
-				listInArchives = true
-			}
-		} else {
-			parseFileName(s)
-		}
-	}
-	if haveGlobber {
-		mask := file_mask
-		if !case_sensitive {
-			mask = strings.ToUpper(mask)
-		}
-		matcher = glob.MustCompile(mask)
-	}
 }
 
 func main() {
