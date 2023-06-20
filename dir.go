@@ -231,8 +231,8 @@ func resolveCommand(cmd string) string {
 		path = filepath.Dir(executablePath)
 	}
 	path = filepath.Join(path, cmd)
-	_, e := os.Stat(path)
-	if e == nil {
+	_, err = os.Stat(path)
+	if err == nil {
 		return path
 	}
 	if !errors.Is(err, os.ErrNotExist) {
