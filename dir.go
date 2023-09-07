@@ -1,5 +1,11 @@
 package main
 
+// To Do: Totals mode should total up all files in the directories also.  Recursive should total up all under also.
+// To Do: ACLs - e.g. ls -le - to see who has permissions added.
+// e.g. chmod -R +a "group:staff allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
+// 			 /Users/Shared/screencasts
+// To restore my access on my work Mac:
+// chmod +a "user:tony allow read,write,append,readattr,writeattr,readextattr, writeextattr,readsecurity"
 /*
 Copyright 2023, RoboMac
 
@@ -808,9 +814,6 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	}
 	if (!recursed || len(ls.MatchedFiles) > 0) && size_calculations {
 		fmt.Printf("   %4d Files (%s bytes) and %4d Directories.\n", ls.Filecount, FileSizeToString(ls.Bytesfound), ls.Directorycount)
-		if !recursed {
-			fmt.Printf("   %4d Total Files (%s Total Bytes) listed.", TotalFiles, FileSizeToString(TotalBytes))
-		}
 	}
 
 	if listInArchives && len(ls.Archives) > 0 {
@@ -826,6 +829,9 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 		for _, d := range ls.Subdirs {
 			list_directory(filepath.Join(target, d), true, false)
 		}
+	}
+	if recurse_directories && !recursed {
+		fmt.Printf("\n   %4d Total Files (%s Total Bytes) listed.\n", TotalFiles, FileSizeToString(TotalBytes))
 	}
 	return err
 }
