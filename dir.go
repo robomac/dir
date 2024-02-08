@@ -53,7 +53,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2023-06-19"
+const versionDate = "2024-02-08"
 
 type sortfield string
 type sortorder struct {
@@ -86,6 +86,8 @@ const (
 	ARCHIVE_ZIP
 	ARCHIVE_TGZ
 	ARCHIVE_7Z
+)
+const (
 	// Filetypes
 	NONE  Filetype = iota // starts at 0, also used for reset
 	AUDIO                 // 1 ...
