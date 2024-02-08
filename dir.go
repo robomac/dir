@@ -31,7 +31,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -159,10 +158,10 @@ var ( // Runtime configuration
 	matcher             glob.Glob
 	start_directory     string
 	file_mask           string
-	filenameParsed      bool = false
-	haveGlobber              = false
-	case_sensitive      bool = false
-	exclude_exts        []string
+	filenameParsed      bool       = false
+	haveGlobber                    = false
+	case_sensitive      bool       = false
+	exclude_exts        []string   // Upper-case list of extensions to ignore.
 	filesizes_format    sizeformat = SIZE_NATURAL
 	use_colors          bool       = false
 	use_enhanced_colors bool       = true // only applies if use_colors is on.
@@ -361,7 +360,8 @@ func PDFText(filepath string, ignoreExtension bool) (string, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		log.Fatalf("cmd.Run() failed with %s\n", err)
+		conditionalPrint(debug_messages, "Could not run pdftotext on "+filepath+"; "+err.Error()+"\n")
+		return "", errors.New("could not run pdftotext on " + filepath + "; " + err.Error())
 	}
 	if stderr.Len() > 0 {
 		fmt.Printf("Got errors: %s", stderr.String())
