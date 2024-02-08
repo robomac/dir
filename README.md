@@ -39,6 +39,8 @@ Filters:
         So use -t{c|i|r} with -z cautiously.
         This is distinct from -t, which prints totals without filenames.
         e.g. dir -ti=rAt *.txt will find txt files with RAT, rat or any combination.
+    x=v,v... (or exclude=) Comma-separated list of extensions to skip over.  E.g. avoid text-search on 
+        MOV, MP4 files.  Case-insensitive.  This can make text searching a lot faster.
 
 Visibility:
     d{+|-} = List Directories.  + is ONLY list directories, - exludes them.  Default is list files and directories.
@@ -55,7 +57,7 @@ Recursion:
         e.g. dir -z ~/Downloads/readme*  will find all readme* files in all archives in Downloads.
 
 Sort Order:
-    o{-}{n|t|x|d} = sort order.  n = name, t = type, x = extension, d = modified, s = size
+    o{-}{n|t|x|d|s} = sort order.  n = name, t = type, x = extension, d = modified, s = size
         - reverses the order to descending.  (This is -r in ls.)
         e.g. /o-n lists in reverse alpha.
         type lumps by extension classification, if found, and then by extension and name.
@@ -87,6 +89,11 @@ Other output commands:
     Note, if you're coming from DOS, that you may have to quote wildcards to prevent zshell/bash from globbing (interpreting - also called expansion) them.
     Globbing is what lets ~ equate to $HOME, and a lot of other niceties, but zsh pretty aggressively does it by default
     Or preface the command with noglob, perhaps in an alias.  
+
+Example:
+    dir -r -z -x=mov,mp4,gif,jpeg,jpg -ti=christmas
+        Would search from the current directory down for files with the word "Christmas" with any casing, SKIPPING movie/graphic files,
+        but looking inside MS Office (DOCX), PDF and ZIP files.    
 ## Credits
 'dir' imports, but does not distribute:
 *  github.com/bodgit/sevenzip (BSD 3-Clause License)

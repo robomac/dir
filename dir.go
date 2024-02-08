@@ -37,6 +37,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -158,9 +159,10 @@ var ( // Runtime configuration
 	matcher             glob.Glob
 	start_directory     string
 	file_mask           string
-	filenameParsed      bool       = false
-	haveGlobber                    = false
-	case_sensitive      bool       = false
+	filenameParsed      bool = false
+	haveGlobber              = false
+	case_sensitive      bool = false
+	exclude_exts        []string
 	filesizes_format    sizeformat = SIZE_NATURAL
 	use_colors          bool       = false
 	use_enhanced_colors bool       = true // only applies if use_colors is on.
@@ -261,6 +263,9 @@ func fileMeetsConditions(target fileitem) bool {
 	if (!listfiles) && !target.IsDir {
 		return false
 	}
+	if len(exclude_exts) > 0 && slices.Contains(exclude_exts, target.Extension()) {
+		return false
+	}
 
 	filename := target.Name
 	if (!listhidden) && filename[0] == '.' {
@@ -287,6 +292,9 @@ func fileMeetsConditions(target fileitem) bool {
 
 	t_ext := target.Extension()
 	if text_search_type != SEARCH_NONE {
+		if target.IsDir {
+			return false
+		}
 		if target.InArchive {
 			if !archiveFileTextSearch(target) {
 				return false

@@ -251,6 +251,8 @@ func parseCmdLine() {
 			case "version", "v":
 				fmt.Println(versionDate)
 				os.Exit(0)
+			case "exclude", "x":
+				exclude_exts = strings.Split(strings.ToUpper(values), ",")
 			case "z":
 				listInArchives = true
 			}
