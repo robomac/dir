@@ -4,8 +4,11 @@ dir, A better directory lister.
     Flags are denoted by -, but many can also be denoted, DOS-style, as switches with /
 
 Filters:
-    m{d|s}=v:v  Min/Max values for file data or size.  e.g. -md=2023-02-01:2023-03-31
-        Only that date format is accepted; times are not accepted.
+    cs = Case-Sensitive file mask. e.g. "-cs F*" will not match "file", while omitting "-cs" will.
+
+    m{a|c|d|s}=v:v  Min/Max values for file accessed/create/modification date or size.  
+        e.g. -md=2023-02-01:2023-03-31
+        Only that date format is accepted; times are not accepted. Only one date filter can be applied.
         If only one value and no colon is present, it will be the minimium.
         An empty value implies no bound, e.g. -ms=:500000 would look for files less than or 500000 bytes.
     t{c|i|r}=v text search - case sensitive, insensitive or regex.  Don't forget to disable globbing!
@@ -33,12 +36,23 @@ Recursion:
         e.g. dir -z ~/Downloads/readme*  will find all readme* files in all archives in Downloads.
 
 Sort Order:
-    o{-}{n|t|x|d|s} = sort order.  n = name, t = type, x = extension, d = modified, s = size
+    o{-}{n|t|x|a|c|d|s} = sort order.  n = name, t = type, x = extension, a = access, c = created, d = modified, s = size
         - reverses the order to descending.  (This is -r in ls.)
         e.g. /o-n lists in reverse alpha.
         type lumps by extension classification, if found, and then by extension and name.
 
 Output Formatting:
+    c="{acmlnps?}" = Field and output formatting. Default: "p   m  (c)  s   nl"
+        Fields:
+            a: Last Accessed Time
+            c: Created Time
+            l: Link Target, if applicable.
+            m: Modified Time
+            n: File Name
+            p: Permissions (mode) 
+            s: File size
+        Any other character is quoted verbatim - e.g. spaces and parenthesis in the default.
+
     s{c|h|r} = file size formatting.
         sc = Use commas as thousands-separators.  In ls, this is -,
         sh = Abbreviate the size to KB, MB or GB as appropriate.  In ls, this is -h.

@@ -1,13 +1,7 @@
 package main
 
-// To Do: Totals mode should total up all files in the directories also.  Recursive should total up all under also.
-// To Do: ACLs - e.g. ls -le - to see who has permissions added.
-// e.g. chmod -R +a "group:staff allow list,add_file,search,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
-// 			 /Users/Shared/screencasts
-// To restore my access on my work Mac:
-// chmod +a "user:tony allow read,write,append,readattr,writeattr,readextattr, writeextattr,readsecurity"
 /*
-Copyright 2023, RoboMac
+Copyright 2023, 2024, RoboMac
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -55,6 +49,18 @@ var helptext string
 
 const versionDate = "2024-02-08"
 
+const (
+	COLUMN_DATEMODIFIED = "m"
+	COLUMN_DATECREATED  = "c"
+	COLUMN_DATEACCESSED = "a"
+	COLUMN_FILESIZE     = "s"
+	COLUMN_MODE         = "p" // for permissions
+	COLUMN_NAME         = "n" // filename
+	COLUMN_LINK         = "l" // e.g. symlink target
+)
+
+var columnDef = "p   m  (c)  s   nl" // See above. Spaces and parens, etc, are relevant.
+
 type sortfield string
 type sortorder struct {
 	field     sortfield
@@ -69,7 +75,9 @@ type Filetype int
 
 const (
 	SORT_NAME         sortfield  = "n"
-	SORT_DATE         sortfield  = "d" // Sort by last modified.
+	SORT_DATE         sortfield  = "d" // Sort by last modified. (Which is "m" in columns)
+	SORT_CREATED      sortfield  = COLUMN_DATECREATED
+	SORT_ACCESSED     sortfield  = COLUMN_DATEACCESSED
 	SORT_SIZE         sortfield  = "s"
 	SORT_TYPE         sortfield  = "e" // Uses mod and knowledge of extensions to group, e.g. image, archive, code, document
 	SORT_EXT          sortfield  = "x" // Extension in DOS
@@ -137,24 +145,25 @@ var FileColors = map[Filetype]string{
 }
 
 var ( // Runtime configuration
-	show_errors              = false
-	debug_messages           = false
-	bare                bool = false // Only print filenames
-	include_path             = false // Turn on in bare+ mode
-	sortby                   = sortorder{SORT_NAME, true}
-	directories_first        = true
-	listdirectories     bool = true
-	listfiles           bool = true
-	listInArchives      bool = false
-	listhidden          bool = true
-	directory_header    bool = true // Print name of directory.  Usually with size_calculations
-	pathIsArchive       bool = false
-	size_calculations   bool = true // Print directory byte totals
-	recurse_directories bool = false
-	mindate             time.Time
+	show_errors                   = false
+	debug_messages                = false
+	bare                bool      = false // Only print filenames
+	include_path                  = false // Turn on in bare+ mode
+	sortby                        = sortorder{SORT_NAME, true}
+	directories_first             = true
+	listdirectories     bool      = true
+	listfiles           bool      = true
+	listInArchives      bool      = false
+	listhidden          bool      = true
+	directory_header    bool      = true // Print name of directory.  Usually with size_calculations
+	pathIsArchive       bool      = false
+	size_calculations   bool      = true // Print directory byte totals
+	recurse_directories bool      = false
+	mindate             time.Time // Filter for min/max date, requires minmaxdatetype
 	maxdate             time.Time
-	minsize             int64 = -1
-	maxsize             int64 = math.MaxInt64
+	minmaxdatetype      string = "m" // May be m = modified, a = accessed, c = created. Only one is allowed.
+	minsize             int64  = -1
+	maxsize             int64  = math.MaxInt64
 	matcher             glob.Glob
 	start_directory     string
 	file_mask           string
@@ -170,6 +179,7 @@ var ( // Runtime configuration
 	PdftotextPath       string = "*" // Uninitialized
 	TotalFiles          int
 	TotalBytes          int64
+	ColumnOrder         string = ""
 )
 
 func ternaryString(condition bool, s1 string, s2 string) string {
@@ -271,11 +281,31 @@ func fileMeetsConditions(target fileitem) bool {
 		return false
 	}
 
-	if !mindate.IsZero() && target.Modified.Before(mindate) {
-		return false
+	// Check date ranges - there are three possibilities
+	if !mindate.IsZero() {
+		if minmaxdatetype == "m" && target.Modified.Before(mindate) {
+			return false
+		}
+		if minmaxdatetype == "c" && target.Created.Before(mindate) {
+			return false
+		}
+		// Else a
+		if target.Accessed.Before(mindate) {
+			return false
+		}
 	}
-	if !maxdate.IsZero() && target.Modified.After(maxdate) {
-		return false
+
+	if !maxdate.IsZero() {
+		if minmaxdatetype == "m" && target.Modified.After(maxdate) {
+			return false
+		}
+		if minmaxdatetype == "c" && target.Created.After(maxdate) {
+			return false
+		}
+		// Default a
+		if target.Accessed.After(maxdate) {
+			return false
+		}
 	}
 	if target.Size < minsize || target.Size > maxsize {
 		return false
@@ -628,7 +658,7 @@ func filesInZipArchive(filename string, checkConditions bool) (ListingSet, error
 	defer zipReader.Close()
 
 	for _, fileInZip := range zipReader.File {
-		var item fileitem = fileitem{filename, fileInZip.Name, int64(fileInZip.UncompressedSize64), fileInZip.ModTime(),
+		var item fileitem = fileitem{filename, fileInZip.Name, int64(fileInZip.UncompressedSize64), fileInZip.ModTime(), time.Time{}, time.Time{},
 			fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
 		if !checkConditions || fileMeetsConditions(item) {
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
@@ -656,7 +686,7 @@ func filesIn7ZArchive(filename string) (ListingSet, error) {
 
 	for _, fileInZip := range zipReader.File {
 		var item fileitem = fileitem{filename, fileInZip.Name, fileInZip.FileInfo().Size(),
-			fileInZip.Modified, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
+			fileInZip.Modified, time.Time{}, time.Time{}, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
 		if fileMeetsConditions(item) {
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
@@ -693,7 +723,7 @@ func filesInTgzArchive(filename string) (ListingSet, error) {
 
 	head, err := tarReader.Next()
 	for head != nil && err == nil {
-		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, false, head.FileInfo().Mode(), "", true, NONE}
+		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, time.Time{}, time.Time{}, false, head.FileInfo().Mode(), "", true, NONE}
 		if fileMeetsConditions(item) {
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
@@ -789,6 +819,10 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 				return firstName < secondName
 			case SORT_DATE:
 				return first.Modified.Before(second.Modified)
+			case SORT_ACCESSED:
+				return first.Accessed.Before(second.Accessed)
+			case SORT_CREATED:
+				return first.Created.Before(second.Created)
 			case SORT_SIZE:
 				return first.Size < second.Size
 			case SORT_TYPE:
@@ -819,7 +853,7 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	}
 	if listfiles || listdirectories {
 		for _, f := range ls.MatchedFiles {
-			fmt.Println(f.ToString())
+			fmt.Println(f.BuildOutput())
 		}
 	}
 	if (!recursed || len(ls.MatchedFiles) > 0) && size_calculations {

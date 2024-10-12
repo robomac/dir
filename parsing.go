@@ -182,6 +182,14 @@ func parseCmdLine() {
 				sortby = sortorder{SORT_DATE, true}
 			case "o-d":
 				sortby = sortorder{SORT_DATE, false}
+			case "oc":
+				sortby = sortorder{SORT_CREATED, true}
+			case "o-c":
+				sortby = sortorder{SORT_CREATED, false}
+			case "oa":
+				sortby = sortorder{SORT_ACCESSED, true}
+			case "o-a":
+				sortby = sortorder{SORT_ACCESSED, false}
 			case "ox":
 				sortby = sortorder{SORT_EXT, true}
 			case "o-x":
@@ -208,6 +216,8 @@ func parseCmdLine() {
 				size_calculations = false
 				directory_header = false
 				include_path = false
+			case "c": // Change column definition for output
+				columnDef = values
 			case "d+":
 				listfiles = false
 				listdirectories = true
@@ -225,8 +235,15 @@ func parseCmdLine() {
 			case "G+":
 				use_colors = true
 				use_enhanced_colors = true
+			case "ma": // Accessed Date
+				parseDateRange(values)
+				minmaxdatetype = "a"
+			case "mc": // Created Date
+				parseDateRange(values)
+				minmaxdatetype = "c"
 			case "md": // Parse dates, compare to Time.IsZero()
 				parseDateRange(values)
+				minmaxdatetype = "m"
 			case "ms": // Parse sizes
 				parseSizeRange(values)
 			case "r":

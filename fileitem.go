@@ -13,6 +13,48 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+// Note: To sort by date-added on Mac, can use mdls to fill those values.
+// This is not portable. It prints/outputs file metadata.
+// stat -f "%Sc" <filename> shows "Change" which seems to match. B is "birth" and "m" is modify, both seem to show local change times.
+// stat -f "Access (atime): %Sa%nModify (mtime): %Sm%nChange (ctime): %Sc%nBirth  (Btime): %SB" file.txt
+// Change is change of metadata. Modified is change of file contents.  B - birth is supposed to be file creation time on the file system, AKA crtime or btime.
+// ext4 fs equivalent: https://moiseevigor.github.io/software/2015/01/30/get-file-creation-time-on-linux-with-ext4/
+// Windows also has create time. From dir /?
+/*   /T          Controls which time field displayed or used for sorting
+timefield   C  Creation
+            A  Last Access
+            W  Last Written
+*/
+// Use a flag for determining whether to grab created - i.e. if displaying, filtering or sorting on it.
+// Need to determine OS to find mechanism for it - Windows vs Mac vs Linux perhaps.
+// In Help, point out that it is slower.
+/*
+https://pkg.go.dev/os#Stat
+
+stat (and others) return fileinfo which is fs.FileInfo, which includes a Sys() method for the underlying data source.
+e.g. go includes a test function for Darwin -
+func atime(fi FileInfo) time.Time {
+	return time.Unix(fi.Sys().(*syscall.Stat_t).Atimespec.Unix())
+}
+The names may have changed, Stat_t type.
+See https://go.dev/src/syscall/ ztypes_*.go
+
+
+import (
+	"fmt"
+	"os"
+	"syscall"
+	"time"
+)
+
+func main() {
+	f, _ := os.Stat("test")
+	t := f.Sys().(*syscall.Stat_t).Birthtimespec
+	d := time.Unix(t.Sec, t.Nsec)
+	fmt.Println(d)
+}
+*/
+
 package main
 
 import (
@@ -30,6 +72,8 @@ type fileitem struct {
 	Name      string // Name including any extention
 	Size      int64
 	Modified  time.Time
+	Created   time.Time // If supported by the OS, this is when added. Otherwise 0 (time.Time{})
+	Accessed  time.Time // If supported by the OS, this is when added. Otherwise 0 (time.Time{})
 	IsDir     bool
 	Mode      fs.FileMode
 	LinkDest  string
@@ -131,6 +175,7 @@ func (f fileitem) ModeToString() string {
 	return rwx.String()
 }
 
+// The settings for this are global, in dir.go.
 func (f fileitem) ToString() string {
 	name := f.Name
 	if include_path {
@@ -150,15 +195,77 @@ func (f fileitem) ToString() string {
 		}
 		colorreset = colorSetString(NONE)
 	}
-	return fmt.Sprintf("%s%s   %s  %s   %s%s%s", colorstr, f.ModeToString(), f.Modified.Format("2006-01-02 15:04:05"), f.FileSizeToString(), name, linktext, colorreset)
+	createdTime := ""
+	if !f.Created.IsZero() {
+		createdTime = f.Created.Format("  (2006-01-02 15:04:05)")
+	}
+	return fmt.Sprintf("%s%s   %s%s  %s   %s%s%s", colorstr, f.ModeToString(), f.Modified.Format("2006-01-02 15:04:05"), createdTime, f.FileSizeToString(), name, linktext, colorreset)
+}
+
+// Set off of the columns map
+func (f fileitem) BuildOutput() string {
+	name := f.Name
+	if include_path {
+		name = filepath.Join(f.Path, f.Name)
+	}
+	if bare {
+		return name
+	}
+	colorstr := ""
+	colorreset := ""
+	linktext := ternaryString(len(f.LinkDest) > 0, "-> "+f.LinkDest, "")
+
+	if use_colors {
+		colorstr = colorSetString(f.FileType())
+		if !use_enhanced_colors && f.FileType() >= DOCUMENT && f.FileType() < DIRECTORY {
+			colorstr = colorSetString(DEFAULT) // Because not enhanced.
+		}
+		colorreset = colorSetString(NONE)
+	}
+	modifiedTime := f.Modified.Format("2006-01-02 15:04:05")
+	accessedTime := ""
+	if !f.Accessed.IsZero() {
+		accessedTime = f.Accessed.Format("2006-01-02 15:04:05")
+	}
+	createdTime := ""
+	if !f.Created.IsZero() {
+		createdTime = f.Created.Format("2006-01-02 15:04:05")
+	}
+	outputString := colorstr
+	for i := 0; i < len(columnDef); i++ { //run a loop and iterate through each character
+		switch string(columnDef[i]) {
+		case COLUMN_DATEMODIFIED:
+			outputString += modifiedTime
+		case COLUMN_DATECREATED:
+			outputString += createdTime
+		case COLUMN_DATEACCESSED:
+			outputString += accessedTime
+		case COLUMN_FILESIZE:
+			outputString += f.FileSizeToString()
+		case COLUMN_MODE:
+			outputString += f.ModeToString()
+		case COLUMN_NAME:
+			outputString += name
+		case COLUMN_LINK:
+			outputString += linktext
+		default:
+			outputString += string(columnDef[i])
+		}
+	}
+	outputString += colorreset
+	return outputString
 }
 
 func makefileitem(de fs.DirEntry, path string) fileitem {
 	var item fileitem
 	link, _ := os.Readlink(filepath.Join(path, de.Name()))
-	i, e := de.Info()
+	fi, e := de.Info()
 	if e == nil {
-		item = fileitem{path, i.Name(), i.Size(), i.ModTime(), i.IsDir(), i.Mode(), link, false, NONE}
+		item = fileitem{path, fi.Name(), fi.Size(), fi.ModTime(), time.Time{}, time.Time{}, fi.IsDir(), fi.Mode(), link, false, NONE}
+		// Only do this on supported system. https://go.dev/doc/install/source#environment  $GOOS == android, darwin, dragonfly, freebsd, illumos, ios, js, linux, netbsd, openbsd, plan9, solaris, wasip1, and windows.
+		// If checking for create time, try to fill in here.
+		// Possible elements: Birthtimespec,
+		item.Created, item.Accessed = createdAndAccessed(fi)
 	}
 	return item
 }
