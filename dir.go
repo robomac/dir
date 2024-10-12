@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -206,7 +207,7 @@ func colorSetString(ftype Filetype) string {
 // Read the LS_COLORS variable and turn into our settings for coloring.
 func mapColors() {
 	lscolors := os.Getenv("LS_COLORS")
-	if len(lscolors) > 6 {
+	if len(lscolors) > 6 || runtime.GOOS == "windows" {
 		use_colors = true
 	}
 	colorDirectives := strings.Split(lscolors, ":")
