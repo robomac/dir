@@ -34,6 +34,10 @@ Recursion:
         e.g. dir -z foo.zip/* will list all files in foo.zip
         e.g. dir -z ~/Downloads/big.zip/readme* will find all readme* files in big.zip.
         e.g. dir -z ~/Downloads/readme*  will find all readme* files in all archives in Downloads.
+    Hint: Format for recursion if sorting, such as: dir -r -cr -G- -pad=50 | sort
+        This turns on recursion, outputs name folder modified, turns off colors (for sorting) 
+        and pads the name so it lines up.
+    
 
 Sort Order:
     o{-}{n|t|x|a|c|d|s} = sort order.  n = name, t = type, x = extension, a = access, c = created, d = modified, s = size
@@ -46,12 +50,17 @@ Output Formatting:
         Fields:
             a: Last Accessed Time
             c: Created Time
+            f: Folder-path (path to file - good with recursion.)
             l: Link Target, if applicable.
             m: Modified Time
             n: File Name
             p: Permissions (mode) 
             s: File size
         Any other character is quoted verbatim - e.g. spaces and parenthesis in the default.
+
+    cd = show all dates, same as -c="c   m   a  s   nl"
+    cr = recursion-format, same as -c="n  m  f" plus -pad=30 and -b-
+         Hint: If piping to sort, use -G- to suppress colors.
 
     s{c|h|r} = file size formatting.
         sc = Use commas as thousands-separators.  In ls, this is -,
@@ -66,6 +75,9 @@ Output Formatting:
 
     b{+} = bare (filenames only, e.g. for use with xargs or other inputs), one per line.  
         b+ includes the path to the filename.
+        Note that b omits coloring, while -c=n would retain coloring.
+    b- = Suppress directory headers and totals, but otherwise follow default or output formatting options.
+    pad=# Pads the file name and folder (directory) name to the specified number of spaces.
     t = Totals only, no filenames/listing.
 
 

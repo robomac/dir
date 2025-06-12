@@ -48,7 +48,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2024-02-08"
+const versionDate = "2025-06-10"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -58,9 +58,10 @@ const (
 	COLUMN_MODE         = "p" // for permissions
 	COLUMN_NAME         = "n" // filename
 	COLUMN_LINK         = "l" // e.g. symlink target
+	COLUMN_PATH         = "f" // Path == folders, especially for dir <mask> -r
 )
 
-var columnDef = "p   m  (c)  s   nl" // See above. Spaces and parens, etc, are relevant.
+var columnDef = "p   m  (c)  s   nl" // See above. Spaces and parens, etc, are relevant. This is the default.
 
 type sortfield string
 type sortorder struct {
@@ -169,6 +170,7 @@ var ( // Runtime configuration
 	start_directory     string
 	file_mask           string
 	filenameParsed      bool       = false
+	namePadding         int        = 0
 	haveGlobber                    = false
 	case_sensitive      bool       = false
 	exclude_exts        []string   // Upper-case list of extensions to ignore.

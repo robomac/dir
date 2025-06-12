@@ -211,6 +211,9 @@ func parseCmdLine() {
 				include_path = true
 				size_calculations = false
 				directory_header = false
+			case "b-":
+				size_calculations = false
+				directory_header = false
 			case "b":
 				bare = true
 				size_calculations = false
@@ -218,6 +221,15 @@ func parseCmdLine() {
 				include_path = false
 			case "c": // Change column definition for output
 				columnDef = values
+			case "cd": // Column definition is dates-focused
+				columnDef = "c   m   a  s   nl"
+			case "cr": //
+				columnDef = "n  m   f"
+				size_calculations = false
+				directory_header = false
+				if namePadding == 0 {
+					namePadding = 30
+				}
 			case "d+":
 				listfiles = false
 				listdirectories = true
@@ -246,6 +258,13 @@ func parseCmdLine() {
 				minmaxdatetype = "m"
 			case "ms": // Parse sizes
 				parseSizeRange(values)
+			case "pad": // Pad name
+				i, err := strconv.Atoi(values)
+				if err != nil {
+					fmt.Printf("Error parsing pad integer {values}\n")
+				} else {
+					namePadding = i
+				}
 			case "r":
 				recurse_directories = true
 			case "sc": // Use commas (local sep) in file sizes

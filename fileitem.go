@@ -245,9 +245,19 @@ func (f fileitem) BuildOutput() string {
 		case COLUMN_MODE:
 			outputString += f.ModeToString()
 		case COLUMN_NAME:
-			outputString += name
+			if namePadding > 0 {
+				outputString += fmt.Sprintf("%-*s", namePadding, name)
+			} else {
+				outputString += name
+			}
 		case COLUMN_LINK:
 			outputString += linktext
+		case COLUMN_PATH:
+			if namePadding > 0 {
+				outputString += fmt.Sprintf("%-*s", namePadding, f.Path)
+			} else {
+				outputString += f.Path
+			}
 		default:
 			outputString += string(columnDef[i])
 		}
