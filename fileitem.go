@@ -79,6 +79,7 @@ type fileitem struct {
 	LinkDest  string
 	InArchive bool
 	_ft       Filetype // Holds the filetype once initialized.  Use .FileType() instead.
+	FoundText string   // Only if doing a text search.
 }
 
 // BSD often has executable archives.  Weird concept, throws the basics off.
@@ -263,6 +264,9 @@ func (f fileitem) BuildOutput() string {
 		}
 	}
 	outputString += colorreset
+	if listFoundText && len(f.FoundText) > 0 {
+		outputString += "\n" + f.FoundText + "\n"
+	}
 	return outputString
 }
 
@@ -271,7 +275,7 @@ func makefileitem(de fs.DirEntry, path string) fileitem {
 	link, _ := os.Readlink(filepath.Join(path, de.Name()))
 	fi, e := de.Info()
 	if e == nil {
-		item = fileitem{path, fi.Name(), fi.Size(), fi.ModTime(), time.Time{}, time.Time{}, fi.IsDir(), fi.Mode(), link, false, NONE}
+		item = fileitem{path, fi.Name(), fi.Size(), fi.ModTime(), time.Time{}, time.Time{}, fi.IsDir(), fi.Mode(), link, false, NONE, ""}
 		// Only do this on supported system. https://go.dev/doc/install/source#environment  $GOOS == android, darwin, dragonfly, freebsd, illumos, ios, js, linux, netbsd, openbsd, plan9, solaris, wasip1, and windows.
 		// If checking for create time, try to fill in here.
 		// Possible elements: Birthtimespec,

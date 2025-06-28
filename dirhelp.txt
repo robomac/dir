@@ -16,6 +16,7 @@ Filters:
         If combined with -z, listing files inside archives, it will do a text scan on files in the archives,
         expanding MS Office and PDF files into $TEMP as necessary, which may also be slow.  
         So use -t{c|i|r} with -z cautiously.
+        Note: If needing to quote - e.g. embedded spaces - put the entire flag in quotes, e.g. "-ti= the "
         This is distinct from -t, which prints totals without filenames.
         e.g. dir -ti=rAt *.txt will find txt files with RAT, rat or any combination.
     x=v,v... (or exclude=) Comma-separated list of extensions to skip over.  E.g. avoid text-search on 
@@ -61,6 +62,10 @@ Output Formatting:
     cd = show all dates, same as -c="c   m   a  s   nl"
     cr = recursion-format, same as -c="n  m  f" plus -pad=30 and -b-
          Hint: If piping to sort, use -G- to suppress colors.
+
+    ct = Text-search output; lists matches after filename listing.
+         Note that this WILL slow search down, as it will find ALL matches in a file
+         rather than just the first one.
 
     s{c|h|r} = file size formatting.
         sc = Use commas as thousands-separators.  In ls, this is -,

@@ -1,7 +1,7 @@
 package main
 
 /*
-Copyright 2023, 2024, RoboMac
+Copyright 2023, 2024, 2025, RoboMac
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2025-06-10"
+const versionDate = "2025-06-28"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -157,7 +157,8 @@ var ( // Runtime configuration
 	listfiles           bool      = true
 	listInArchives      bool      = false
 	listhidden          bool      = true
-	directory_header    bool      = true // Print name of directory.  Usually with size_calculations
+	listFoundText       bool      = false // Set by -ct, for list found text. Also implies find ALL matches in a file.
+	directory_header    bool      = true  // Print name of directory.  Usually with size_calculations
 	pathIsArchive       bool      = false
 	size_calculations   bool      = true // Print directory byte totals
 	recurse_directories bool      = false
@@ -267,103 +268,131 @@ func resolveCommand(cmd string) string {
 	return ""
 }
 
+// Allows inline checking of conditions.
+// if listFoundText, does a full search for all occurances and returns a list of matches.
+func fileCheckMeetsConditions(target fileitem, foundText *string) bool {
+	success := false
+	var textFound string
+	success, textFound = fileMeetsConditions(target)
+	if success {
+		*foundText = textFound
+	}
+	return success
+}
+
 // Does this file meet current conditions for inclusion?
-func fileMeetsConditions(target fileitem) bool {
+func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 	if (!listdirectories) && target.IsDir {
-		return false
+		return false, foundText
 	}
 	if (!listfiles) && !target.IsDir {
-		return false
+		return false, foundText
 	}
 	if len(exclude_exts) > 0 && slices.Contains(exclude_exts, target.Extension()) {
-		return false
+		return false, foundText
 	}
 
 	filename := target.Name
 	if (!listhidden) && filename[0] == '.' {
-		return false
+		return false, foundText
 	}
 
 	// Check date ranges - there are three possibilities
 	if !mindate.IsZero() {
 		if minmaxdatetype == "m" && target.Modified.Before(mindate) {
-			return false
+			return false, foundText
 		}
 		if minmaxdatetype == "c" && target.Created.Before(mindate) {
-			return false
+			return false, foundText
 		}
 		// Else a
 		if target.Accessed.Before(mindate) {
-			return false
+			return false, foundText
 		}
 	}
 
 	if !maxdate.IsZero() {
 		if minmaxdatetype == "m" && target.Modified.After(maxdate) {
-			return false
+			return false, foundText
 		}
 		if minmaxdatetype == "c" && target.Created.After(maxdate) {
-			return false
+			return false, foundText
 		}
 		// Default a
 		if target.Accessed.After(maxdate) {
-			return false
+			return false, foundText
 		}
 	}
 	if target.Size < minsize || target.Size > maxsize {
-		return false
+		return false, foundText
 	}
 
 	// If we don't have the globber, return true.  Otherwise match it.
 	if haveGlobber {
 		testString := ternaryString(case_sensitive, filename, strings.ToUpper(filename))
 		if !matcher.Match(testString) {
-			return false
+			return false, foundText
 		}
 	}
 
 	t_ext := target.Extension()
 	if text_search_type != SEARCH_NONE {
 		if target.IsDir {
-			return false
+			return false, foundText
 		}
 		if target.InArchive {
-			if !archiveFileTextSearch(target) {
-				return false
-			}
+			return archiveFileTextSearch(target)
 		} else if t_ext == "DOCX" || t_ext == "PPTX" || t_ext == "XLSX" || t_ext == "VSDX" {
 			conditionalPrint(debug_messages, "Embedded Zip text search on %s.\n", target.Name)
 			embeddedFiles, err := filesInZipArchive(filepath.Join(target.Path, target.Name), false)
 			if err != nil {
 				conditionalPrint(show_errors, "Could not unzip %s: %s\n", target.Name, err.Error())
-				return false
+				return false, foundText
 			}
 			found := false
+			// In a docx or office file, the "files" are things like "word/theme/theme1.xml", "word/document.xml",
+			// "word/_rels/document.xml.rels", "_rels/.rels", "[Content_Types].xml", settings.xml, etc.
 			for _, f := range embeddedFiles.MatchedFiles {
 				var data []byte
 				data, err = extractZipFileBytes(f.Path, f.Name, 0, int(f.Size))
-				found = text_regex.Match(data)
-				if found {
-					break
+				if !listFoundText { // Stop at the first matching file
+					found = text_regex.Match(data)
+					if found {
+						break
+					}
+				} else { // Do all files
+					newfound, newFoundText := matchTextBuffer(text_regex, data, listFoundText)
+					if newfound {
+						found = true
+						foundText += newFoundText
+					}
 				}
 			}
 			if err != nil { // Try brute forcè
-				found = diskFileTextSearch(target)
+				found, foundText = diskFileTextSearch(target)
 			}
 			if !found {
-				return false
+				return false, foundText
 			}
 			// We want to fall through to brute-force on any error.  Error may be PROGRAM_NOT_FOUND
 		} else if s, e := PDFText(filepath.Join(target.Path, target.Name), false); e == nil {
-			if !text_regex.Match([]byte(s)) {
-				return false
+			if !listFoundText { // Could just call matchTextBuffer as is, but for speed...
+				if !text_regex.Match([]byte(s)) {
+					return false, foundText
+				}
+			} else {
+				return matchTextBuffer(text_regex, []byte(s), listFoundText)
 			}
-		} else if !diskFileTextSearch(target) {
-			return false
+		} else {
+			var f bool
+			f, foundText = diskFileTextSearch(target)
+			if !f {
+				return false, foundText
+			}
 		}
 	}
 
-	return true
+	return true, foundText
 }
 
 // Returns an error if not opened or no utility (pdftotext)
@@ -403,11 +432,11 @@ func PDFText(filepath string, ignoreExtension bool) (string, error) {
 }
 
 // Load and search one file in the zip, with a maximum size.
-func archiveFileTextSearch(target fileitem) bool {
+func archiveFileTextSearch(target fileitem) (bool, string) {
 	var data []byte
 	var err error
 	if target.Size > 1000000 {
-		return false
+		return false, ""
 	}
 	switch FileIsArchiveType(target.Path) {
 	case ARCHIVE_ZIP:
@@ -418,10 +447,10 @@ func archiveFileTextSearch(target fileitem) bool {
 		data, err = extractTgzFileBytes(target.Path, target.Name, 0, int(target.Size))
 	default:
 		// No handler found.
-		return false
+		return false, ""
 	}
 	if err != nil {
-		return false
+		return false, ""
 	}
 	var t_ext string = target.Extension()
 	if t_ext == "DOCX" || t_ext == "PPTX" || t_ext == "XLSX" || t_ext == "VSDX" || t_ext == "PDF" {
@@ -438,7 +467,8 @@ func archiveFileTextSearch(target fileitem) bool {
 			if t_ext == "PDF" {
 				s, e := PDFText(pfile.Name(), true)
 				if e == nil {
-					return text_regex.Match([]byte(s))
+					//return text_regex.Match([]byte(s))
+					return matchTextBuffer(text_regex, []byte(s), listFoundText)
 				}
 			} else { // Handle Office files - decompress and check
 				embeddedFiles, err := filesInZipArchive(pfile.Name(), false)
@@ -447,27 +477,28 @@ func archiveFileTextSearch(target fileitem) bool {
 						var data []byte
 						data, err = extractZipFileBytes(f.Path, f.Name, 0, int(f.Size))
 						if err == nil {
-							if text_regex.Match(data) {
-								return true
-							}
+							return matchTextBuffer(text_regex, data, listFoundText)
+							// if text_regex.Match(data) {								return true							}
 						}
 					}
 				}
 			}
 		} // temp file creation success
 	} // office or pdf file
-	return text_regex.Match(data)
+	//return text_regex.Match(data)
+	return matchTextBuffer(text_regex, data, listFoundText)
 }
 
 // Searches the file in chunks.
 // Returns true if the file has the text.  False on error or not found.
-func diskFileTextSearch(target fileitem) bool {
-	found_text := false
+func diskFileTextSearch(target fileitem) (bool, string) {
+	text_found := false
+	allFoundText := ""
 	// Load file in blocks of 200KB for speed and memory.
 	file, err := os.Open(filepath.Join(target.Path, target.Name))
 	if err != nil {
 		conditionalPrint(show_errors, "Could not open file for text search: %s - %s\n", target.Name, err.Error())
-		return false
+		return false, allFoundText
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
@@ -483,21 +514,64 @@ func diskFileTextSearch(target fileitem) bool {
 
 	searchBuffer := make([]byte, chunkSize+overlapSize)
 
-	for !found_text {
+	for !text_found || listFoundText { // Will exit on EOF from break if finding all matches
 		n, err := reader.Read(searchBuffer[overlapSize:])
 
 		if err != nil && err.Error() != "EOF" {
 			conditionalPrint(show_errors, "Could not open file for text search: %s - %s\n", target.Name, err.Error())
-			return false
+			return false, allFoundText
 		}
-		found_text = text_regex.Match(searchBuffer)
+		if !listFoundText {
+			text_found = text_regex.Match(searchBuffer)
+		} else {
+			found, newFoundText := matchTextBuffer(text_regex, searchBuffer, true)
+			if found {
+				text_found = true
+				allFoundText += newFoundText
+			}
+
+		}
 
 		// Check for EOF
 		if (n < chunkSize) || n == int(target.Size) {
 			break
 		}
 	}
-	return found_text
+	return text_found, allFoundText
+}
+
+// matchTextBuffer scans a buffer line by line for matches to the regex.
+// If findAll is true, returns all matched excerpts (with some context); else stops at first match.
+func matchTextBuffer(regex *regexp.Regexp, buffer []byte, findAll bool) (bool, string) {
+	var result strings.Builder
+	found := false
+	scanner := bufio.NewScanner(bytes.NewReader(buffer))
+	for scanner.Scan() {
+		line := scanner.Text()
+		matches := regex.FindAllStringIndex(line, -1)
+		if len(matches) > 0 {
+			found = true
+			if !findAll {
+				return true, ""
+			}
+			for _, loc := range matches {
+				start := loc[0]
+				end := loc[1]
+				lineStart := start - 5
+				if lineStart < 0 {
+					lineStart = 0
+				}
+				lineEnd := end + 60
+				if lineEnd > len(line) {
+					lineEnd = len(line)
+				}
+				excerpt := line[lineStart:lineEnd]
+				result.WriteString(excerpt)
+				result.WriteString("\n")
+			}
+		}
+	}
+	return found, result.String()
 }
 
 type ListingSet struct {
@@ -661,9 +735,11 @@ func filesInZipArchive(filename string, checkConditions bool) (ListingSet, error
 	defer zipReader.Close()
 
 	for _, fileInZip := range zipReader.File {
+		var foundText string
 		var item fileitem = fileitem{filename, fileInZip.Name, int64(fileInZip.UncompressedSize64), fileInZip.ModTime(), time.Time{}, time.Time{},
-			fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
-		if !checkConditions || fileMeetsConditions(item) {
+			fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE, ""}
+		if !checkConditions || fileCheckMeetsConditions(item, &foundText) {
+			item.FoundText = foundText
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
 				ls.Directorycount++
@@ -689,8 +765,10 @@ func filesIn7ZArchive(filename string) (ListingSet, error) {
 
 	for _, fileInZip := range zipReader.File {
 		var item fileitem = fileitem{filename, fileInZip.Name, fileInZip.FileInfo().Size(),
-			fileInZip.Modified, time.Time{}, time.Time{}, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE}
-		if fileMeetsConditions(item) {
+			fileInZip.Modified, time.Time{}, time.Time{}, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE, ""}
+		var foundText string
+		if fileCheckMeetsConditions(item, &foundText) {
+			item.FoundText = foundText
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
 				ls.Directorycount++
@@ -726,8 +804,10 @@ func filesInTgzArchive(filename string) (ListingSet, error) {
 
 	head, err := tarReader.Next()
 	for head != nil && err == nil {
-		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, time.Time{}, time.Time{}, false, head.FileInfo().Mode(), "", true, NONE}
-		if fileMeetsConditions(item) {
+		var item fileitem = fileitem{filename, head.Name, head.Size, head.ModTime, time.Time{}, time.Time{}, false, head.FileInfo().Mode(), "", true, NONE, ""}
+		var foundText string
+		if fileCheckMeetsConditions(item, &foundText) {
+			item.FoundText = foundText
 			ls.MatchedFiles = append(ls.MatchedFiles, item)
 			if item.IsDir {
 				ls.Directorycount++
@@ -754,7 +834,9 @@ func filesInDirectory(target string) ListingSet {
 	if err == nil {
 		for _, f := range files {
 			fi := makefileitem(f, target)
-			if fileMeetsConditions(fi) {
+			var foundText string
+			if fileCheckMeetsConditions(fi, &foundText) {
+				fi.FoundText = foundText
 				ls.MatchedFiles = append(ls.MatchedFiles, fi)
 				if f.IsDir() {
 					ls.Directorycount++

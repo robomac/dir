@@ -230,6 +230,9 @@ func parseCmdLine() {
 				if namePadding == 0 {
 					namePadding = 30
 				}
+			case "ct": // Find all text matches and list them. Fills in fileItem.FoundText
+				listFoundText = true
+				size_calculations = false
 			case "d+":
 				listfiles = false
 				listdirectories = true
