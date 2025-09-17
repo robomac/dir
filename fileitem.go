@@ -122,6 +122,17 @@ func (f fileitem) Extension() string {
 	return ternaryString(lastdot <= 1, "", strings.ToUpper(f.Name[lastdot+1:]))
 }
 
+func FileSizeLen(format sizeformat) int {
+	switch format {
+	case SIZE_QUANTA:
+		return 7
+	case SIZE_SEPARATOR:
+		return 17
+	default:
+		return 14
+	}
+}
+
 func FileSizeToString(fSize int64) string {
 	switch filesizes_format {
 	case SIZE_QUANTA:

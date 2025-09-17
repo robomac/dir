@@ -250,6 +250,8 @@ func parseCmdLine() {
 			case "G+":
 				use_colors = true
 				use_enhanced_colors = true
+			case "H": // Show column headers
+				show_column_headers = true
 			case "ma": // Accessed Date
 				parseDateRange(values)
 				minmaxdatetype = "a"

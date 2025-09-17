@@ -15,6 +15,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+// Problem: -error may be parsed after the errors have been suppressed.
+// Perhaps also should have levels it does/does not apply to.
 import (
 	"archive/tar"
 	"archive/zip"
@@ -48,7 +50,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2025-06-28"
+const versionDate = "2025-09-17"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -177,7 +179,8 @@ var ( // Runtime configuration
 	exclude_exts        []string   // Upper-case list of extensions to ignore.
 	filesizes_format    sizeformat = SIZE_NATURAL
 	use_colors          bool       = false
-	use_enhanced_colors bool       = true // only applies if use_colors is on.
+	use_enhanced_colors bool       = true  // only applies if use_colors is on.
+	show_column_headers bool       = false // Show column headers (field names) defaults off. If on, only applies to beginning of each dir.
 	text_search_type    searchtype = SEARCH_NONE
 	text_regex          *regexp.Regexp
 	PdftotextPath       string = "*" // Uninitialized
@@ -426,7 +429,7 @@ func PDFText(filepath string, ignoreExtension bool) (string, error) {
 		return "", errors.New("could not run pdftotext on " + filepath + "; " + err.Error())
 	}
 	if stderr.Len() > 0 {
-		fmt.Printf("Got errors: %s", stderr.String())
+		fmt.Printf("Got errors: %s on file %s\n", stderr.String(), filepath)
 	}
 	return stdout.String(), err
 }
@@ -934,6 +937,9 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 		fmt.Printf("\n   Directory of %s\n", target)
 		if listfiles {
 			fmt.Printf("\n")
+			if show_column_headers {
+				fmt.Println(printHeaders())
+			}
 		}
 	}
 	if listfiles || listdirectories {
@@ -963,6 +969,44 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 		fmt.Printf("\n   %4d Total Files (%s Total Bytes) listed.\n", TotalFiles, FileSizeToString(TotalBytes))
 	}
 	return err
+}
+
+func printHeaders() string {
+	fmt.Printf("Name       Modified     Size\n")
+	outputString := ""
+	datePad := len("2006-01-02 15:04:05")
+
+	for i := 0; i < len(columnDef); i++ { //run a loop and iterate through each character
+		switch string(columnDef[i]) {
+		case COLUMN_DATEMODIFIED:
+			outputString += fmt.Sprintf("%-*s", datePad, "Modified")
+		case COLUMN_DATECREATED:
+			outputString += fmt.Sprintf("%-*s", datePad, "Created")
+		case COLUMN_DATEACCESSED:
+			outputString += fmt.Sprintf("%-*s", datePad, "Accessed")
+		case COLUMN_FILESIZE:
+			outputString += fmt.Sprintf("%*s", FileSizeLen(filesizes_format), "Size")
+		case COLUMN_MODE:
+			outputString += fmt.Sprintf("%*s", 10, "Perms")
+		case COLUMN_NAME:
+			if namePadding > 0 {
+				outputString += fmt.Sprintf("%-*s", namePadding, "Name")
+			} else {
+				outputString += "Name"
+			}
+		case COLUMN_LINK:
+			outputString += "Link"
+		case COLUMN_PATH:
+			if namePadding > 0 {
+				outputString += fmt.Sprintf("%-*s", namePadding, "Path")
+			} else {
+				outputString += "Path"
+			}
+		default:
+			outputString += string(columnDef[i])
+		}
+	}
+	return outputString
 }
 
 func main() {
