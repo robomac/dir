@@ -972,7 +972,6 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 }
 
 func printHeaders() string {
-	fmt.Printf("Name       Modified     Size\n")
 	outputString := ""
 	datePad := len("2006-01-02 15:04:05")
 
