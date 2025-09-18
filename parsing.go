@@ -294,6 +294,8 @@ func parseCmdLine() {
 				os.Exit(0)
 			case "exclude", "x":
 				exclude_exts = strings.Split(strings.ToUpper(values), ",")
+			case "xd": // Exclude directory list
+				exclude_dirs = strings.Split(values, ",")
 			case "z":
 				listInArchives = true
 			}

@@ -177,6 +177,7 @@ var ( // Runtime configuration
 	haveGlobber                    = false
 	case_sensitive      bool       = false
 	exclude_exts        []string   // Upper-case list of extensions to ignore.
+	exclude_dirs        []string   // List of directories to exclude.
 	filesizes_format    sizeformat = SIZE_NATURAL
 	use_colors          bool       = false
 	use_enhanced_colors bool       = true  // only applies if use_colors is on.
@@ -871,6 +872,15 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	var ls ListingSet
 
 	conditionalPrint(debug_messages, "Analyzing directory %s\n", target)
+	for _, exdir := range exclude_dirs {
+		parts := strings.Split(filepath.Clean(target), string(os.PathSeparator))
+		for _, part := range parts {
+			if part == exdir {
+				conditionalPrint(debug_messages, "Excluding directory %s\n", target)
+				return nil
+			}
+		}
+	}
 	// Iterate through all files, matching and then sort
 	if err == nil {
 		if isArchive {
