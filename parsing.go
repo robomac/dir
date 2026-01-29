@@ -204,6 +204,8 @@ func parseCmdLine() {
 				sortby = sortorder{SORT_SIZE, false}
 			case "ah-":
 				listhidden = false
+			case "ax": // Limit to executable files i.e. x permissions on Linux
+				only_executables = true
 			case "cs":
 				case_sensitive = true
 			case "b+":
@@ -309,5 +311,6 @@ func parseCmdLine() {
 			mask = strings.ToUpper(mask)
 		}
 		matcher = glob.MustCompile(mask)
+		conditionalPrint(debug_messages, "Mask is "+mask)
 	}
 }

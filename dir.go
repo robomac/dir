@@ -159,6 +159,7 @@ var ( // Runtime configuration
 	listfiles           bool      = true
 	listInArchives      bool      = false
 	listhidden          bool      = true
+	only_executables    bool      = false // Set by -ax, limit to executable files only
 	listFoundText       bool      = false // Set by -ct, for list found text. Also implies find ALL matches in a file.
 	directory_header    bool      = true  // Print name of directory.  Usually with size_calculations
 	pathIsArchive       bool      = false
@@ -303,28 +304,36 @@ func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 
 	// Check date ranges - there are three possibilities
 	if !mindate.IsZero() {
-		if minmaxdatetype == "m" && target.Modified.Before(mindate) {
-			return false, foundText
-		}
-		if minmaxdatetype == "c" && target.Created.Before(mindate) {
-			return false, foundText
-		}
-		// Else a
-		if target.Accessed.Before(mindate) {
-			return false, foundText
+		switch minmaxdatetype {
+		case "m":
+			if target.Modified.Before(mindate) {
+				return false, foundText
+			}
+		case "c":
+			if target.Created.Before(mindate) {
+				return false, foundText
+			}
+		default:
+			if target.Accessed.Before(mindate) { // Default a
+				return false, foundText
+			}
 		}
 	}
 
 	if !maxdate.IsZero() {
-		if minmaxdatetype == "m" && target.Modified.After(maxdate) {
-			return false, foundText
-		}
-		if minmaxdatetype == "c" && target.Created.After(maxdate) {
-			return false, foundText
-		}
-		// Default a
-		if target.Accessed.After(maxdate) {
-			return false, foundText
+		switch minmaxdatetype {
+		case "m":
+			if target.Modified.After(maxdate) {
+				return false, foundText
+			}
+		case "c":
+			if target.Created.After(maxdate) {
+				return false, foundText
+			}
+		default:
+			if target.Accessed.After(maxdate) { // Default a
+				return false, foundText
+			}
 		}
 	}
 	if target.Size < minsize || target.Size > maxsize {
@@ -391,6 +400,26 @@ func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 			var f bool
 			f, foundText = diskFileTextSearch(target)
 			if !f {
+				return false, foundText
+			}
+		}
+	}
+
+	// Check for executable flag on *nix if set.
+	if only_executables {
+		info, err := os.Stat(filepath.Join(target.Path, target.Name))
+		if err != nil {
+			return false, foundText
+		}
+		mode := info.Mode()
+		if runtime.GOOS != "windows" {
+			if mode&0111 == 0 {
+				return false, foundText
+			}
+		} else {
+			// On Windows, check for .exe, .bat, .cmd, .com extensions
+			ext := strings.ToUpper(target.Extension())
+			if ext != "EXE" && ext != "BAT" && ext != "CMD" && ext != "COM" {
 				return false, foundText
 			}
 		}

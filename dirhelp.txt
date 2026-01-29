@@ -5,6 +5,7 @@ dir, A better directory lister.
 
 Filters:
     cs = Case-Sensitive file mask. e.g. "-cs F*" will not match "file", while omitting "-cs" will.
+    ax = Limit to executable files ("x" on Linux-like systems, by extension on Windows.)
 
     m{a|c|d|s}=v:v  Min/Max values for file accessed/create/modification date or size.  
         e.g. -md=2023-02-01:2023-03-31
@@ -21,7 +22,7 @@ Filters:
         e.g. dir -ti=rAt *.txt will find txt files with RAT, rat or any combination.
     x=v,v... (or exclude=) Comma-separated list of extensions to skip over.  E.g. avoid text-search on 
         MOV, MP4 files.  Case-insensitive.  This can make text searching a lot faster.
-    xd=v,v... Comma-separated list of directories to skip recursing into. Does not support wild-cards or fragments.
+    xd=v,v... Comma-separated list of directories to skip recursing into. Does not support wild-cards or fragments. 
 
 Visibility:
     d{+|-} = List Directories.  + is ONLY list directories, - exludes them.  Default is list files and directories.
