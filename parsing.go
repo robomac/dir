@@ -300,6 +300,8 @@ func parseCmdLine() {
 				exclude_dirs = strings.Split(values, ",")
 			case "z":
 				listInArchives = true
+			case "zpw":
+				pw7zip = values
 			}
 		} else {
 			parseFileName(s)

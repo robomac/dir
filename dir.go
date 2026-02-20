@@ -50,7 +50,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2025-09-17"
+const versionDate = "2026-02-19"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -189,6 +189,7 @@ var ( // Runtime configuration
 	TotalFiles          int
 	TotalBytes          int64
 	ColumnOrder         string = ""
+	pw7zip              string = ""
 )
 
 func ternaryString(condition bool, s1 string, s2 string) string {
@@ -471,6 +472,7 @@ func archiveFileTextSearch(target fileitem) (bool, string) {
 	if target.Size > 1000000 {
 		return false, ""
 	}
+	conditionalPrint(debug_messages, "- Recursing into archive file: "+target.Path+"/"+target.Name+"\n")
 	switch FileIsArchiveType(target.Path) {
 	case ARCHIVE_ZIP:
 		data, err = extractZipFileBytes(target.Path, target.Name, 0, int(target.Size))
@@ -506,13 +508,25 @@ func archiveFileTextSearch(target fileitem) (bool, string) {
 			} else { // Handle Office files - decompress and check
 				embeddedFiles, err := filesInZipArchive(pfile.Name(), false)
 				if err == nil {
+					found := false
+					allFoundText := ""
 					for _, f := range embeddedFiles.MatchedFiles {
 						var data []byte
 						data, err = extractZipFileBytes(f.Path, f.Name, 0, int(f.Size))
-						if err == nil {
-							return matchTextBuffer(text_regex, data, listFoundText)
-							// if text_regex.Match(data) {								return true							}
+						if err != nil {
+							continue
 						}
+						newfound, newFoundText := matchTextBuffer(text_regex, data, listFoundText)
+						if newfound {
+							if !listFoundText {
+								return true, ""
+							}
+							found = true
+							allFoundText += newFoundText
+						}
+					}
+					if found {
+						return true, allFoundText
 					}
 				}
 			}
@@ -658,7 +672,7 @@ func extractZipFileBytes(zippath string, filename string, offset int, length int
 }
 
 func extract7ZFileBytes(zippath string, filename string, offset int, length int) ([]byte, error) {
-	zipReader, err := sevenzip.OpenReader(zippath)
+	zipReader, err := sevenzip.OpenReaderWithPassword(zippath, pw7zip)
 	if err != nil {
 		if show_errors {
 			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
@@ -787,7 +801,7 @@ func filesInZipArchive(filename string, checkConditions bool) (ListingSet, error
 
 func filesIn7ZArchive(filename string) (ListingSet, error) {
 	var ls ListingSet
-	zipReader, err := sevenzip.OpenReader(filename)
+	zipReader, err := sevenzip.OpenReaderWithPassword(filename, pw7zip)
 	if err != nil {
 		if show_errors {
 			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())

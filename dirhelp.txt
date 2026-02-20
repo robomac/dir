@@ -31,7 +31,8 @@ Visibility:
 Recursion:
     r = recurse subdirectories (i.e. /s in MS-DOS.)
     z = recurse into archives (zip, tgz, tar.gz, 7z files.)  Not all archive formats are supported, 
-        not all compression nor nested archives, and of course no support for encrypted archives.
+        not all compression nor nested archives, and currently only 7z encrypted archives supported.
+        Use -zpw=password to set the 7z password.
         A single archive can be searched by specifying it, including the extension, plus a slash and the 
         file spec.
         e.g. dir -z foo.zip/* will list all files in foo.zip

@@ -1,0 +1,10 @@
+Of course all searches will hit this file.
+
+random_text.txt: Dirk Dastardly, pencil thin moustache
+Test Doc.docx: Jack Spratsworthy, Wisconsin, cheesemaker
+Test Doc2.docx/Test Doc2.pdf: Trevor Cook
+Why Dir.pptx: Betelgeuse, Constructor, bulldozer
+
+test1.zip contains the Dir help file and Test Doc.docx (under a different name, Test File for Dir.docx)
+tgz_test.tgz contains random_text.txt and "Test Doc2.docx" (under the name  "Test File for Dir2.docx")
+sz_test.7z contains random_text.txt, "Test File for Dir2.pdf" (which is the PDF version of "Test Doc2.docx") and "Why Dir.pptx"

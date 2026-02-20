@@ -1,0 +1,2 @@
+This file exists for recursion testing only.
+Marker: RECURSE_SENTINEL_2026
