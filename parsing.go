@@ -29,6 +29,23 @@ import (
 	"github.com/gobwas/glob"
 )
 
+// splitPathAndMask returns the parent path and trailing filename/mask using either slash style.
+// It preserves drive roots like C:\ when splitting values such as C:\*.txt.
+func splitPathAndMask(param string) (string, string, bool) {
+	lastSep := strings.LastIndexAny(param, `/\`)
+	if lastSep < 0 || lastSep+1 >= len(param) {
+		return "", "", false
+	}
+
+	dirPath := param[:lastSep]
+	mask := param[lastSep+1:]
+	sep := param[lastSep]
+	if len(dirPath) == 2 && dirPath[1] == ':' {
+		dirPath += string(sep)
+	}
+	return dirPath, mask, true
+}
+
 // Format-Print only if cond == true
 func conditionalPrint(cond bool, format string, a ...any) {
 	if cond {
@@ -54,7 +71,7 @@ func parseFileName(param string) {
 		param = strings.Replace(param, "~", home, 1)
 	}
 	// Do we need to deal with a directory specification?
-	if strings.Contains(param, "/") {
+	if strings.ContainsAny(param, `/\`) {
 		// We have a start directory.  Do we have a file pattern?  See if this opens.
 		d, err := os.Stat(param)
 		if err == nil {
@@ -66,19 +83,21 @@ func parseFileName(param string) {
 			}
 		}
 		// Try with just the end.
-		dirPath := param[:strings.LastIndex(param, "/")]
-		d, err = os.Stat(dirPath)
-		if err == nil {
-			if d.IsDir() {
-				start_directory = dirPath
-				fileMask = param[strings.LastIndex(param, "/")+1:]
-			} else {
-				extension := "," + dirPath[strings.LastIndex(dirPath, ".")+1:] + ","
-				if strings.Contains(Extensions[ARCHIVE], extension) {
-					// Flag this as the source file to be read.
-					pathIsArchive = true
+		dirPath, mask, havePath := splitPathAndMask(param)
+		if havePath {
+			d, err = os.Stat(dirPath)
+			if err == nil {
+				if d.IsDir() {
 					start_directory = dirPath
-					fileMask = param[strings.LastIndex(param, "/")+1:]
+					fileMask = mask
+				} else {
+					extension := "," + dirPath[strings.LastIndex(dirPath, ".")+1:] + ","
+					if strings.Contains(Extensions[ARCHIVE], extension) {
+						// Flag this as the source file to be read.
+						pathIsArchive = true
+						start_directory = dirPath
+						fileMask = mask
+					}
 				}
 			}
 		}

@@ -446,6 +446,7 @@ func PDFText(filepath string, ignoreExtension bool) (string, error) {
 		PdftotextPath = resolveCommand("pdftotext")
 		if len(PdftotextPath) == 0 {
 			conditionalPrint(debug_messages, "Could not find pdftotext.  PDF text will not be found.\n")
+			conditionalPrint(show_errors, "Could not find pdftotext.  PDF text will not be found.\n")
 			return "", errors.New(PROGRAM_NOT_FOUND)
 		}
 	}
@@ -675,7 +676,12 @@ func extract7ZFileBytes(zippath string, filename string, offset int, length int)
 	zipReader, err := sevenzip.OpenReaderWithPassword(zippath, pw7zip)
 	if err != nil {
 		if show_errors {
-			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+			var re *sevenzip.ReadError
+			if errors.As(err, &re) && re.Encrypted {
+				fmt.Printf("Error: Invalid password for %s.\n", filename)
+			} else {
+				fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+			}
 		}
 		return nil, err
 	}
@@ -804,7 +810,12 @@ func filesIn7ZArchive(filename string) (ListingSet, error) {
 	zipReader, err := sevenzip.OpenReaderWithPassword(filename, pw7zip)
 	if err != nil {
 		if show_errors {
-			fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+			var re *sevenzip.ReadError
+			if errors.As(err, &re) && re.Encrypted {
+				fmt.Printf("Error: Invalid password for %s.\n", filename)
+			} else {
+				fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+			}
 		}
 		return ls, err
 	}
