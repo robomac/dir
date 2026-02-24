@@ -92,6 +92,7 @@ Output Formatting:
 
 
 Other output commands:
+    st = Print status (progress) messages when recursing.
     debug == Print debug messages.    
     errors == show all error messages; usually they're quiet.
     version == print the version (probably the build date)

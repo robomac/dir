@@ -299,6 +299,8 @@ func parseCmdLine() {
 				filesizes_format = SIZE_QUANTA
 			case "sr": // Standard default sizes - bytes with no formatting
 				filesizes_format = SIZE_NATURAL
+			case "st": // Status messages
+				progress_messages = true
 			case "t":
 				listfiles = false
 			case "tc": // Case-sensitive search

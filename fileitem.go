@@ -119,7 +119,7 @@ func (f *fileitem) FileType() Filetype {
 // Returns an upper-case version of the file extension (part after last dot), if any.
 func (f fileitem) Extension() string {
 	lastdot := strings.LastIndex(f.Name, ".")
-	return ternaryString(lastdot <= 1, "", strings.ToUpper(f.Name[lastdot+1:]))
+	return ternaryString(lastdot < 1, "", strings.ToUpper(f.Name[lastdot+1:]))
 }
 
 func FileSizeLen(format sizeformat) int {

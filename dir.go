@@ -50,7 +50,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2026-02-19"
+const versionDate = "2026-02-23"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -149,47 +149,49 @@ var FileColors = map[Filetype]string{
 }
 
 var ( // Runtime configuration
-	show_errors                   = false
-	debug_messages                = false
-	bare                bool      = false // Only print filenames
-	include_path                  = false // Turn on in bare+ mode
-	sortby                        = sortorder{SORT_NAME, true}
-	directories_first             = true
-	listdirectories     bool      = true
-	listfiles           bool      = true
-	listInArchives      bool      = false
-	listhidden          bool      = true
-	only_executables    bool      = false // Set by -ax, limit to executable files only
-	listFoundText       bool      = false // Set by -ct, for list found text. Also implies find ALL matches in a file.
-	directory_header    bool      = true  // Print name of directory.  Usually with size_calculations
-	pathIsArchive       bool      = false
-	size_calculations   bool      = true // Print directory byte totals
-	recurse_directories bool      = false
-	mindate             time.Time // Filter for min/max date, requires minmaxdatetype
-	maxdate             time.Time
-	minmaxdatetype      string = "m" // May be m = modified, a = accessed, c = created. Only one is allowed.
-	minsize             int64  = -1
-	maxsize             int64  = math.MaxInt64
-	matcher             glob.Glob
-	start_directory     string
-	file_mask           string
-	filenameParsed      bool       = false
-	namePadding         int        = 0
-	haveGlobber                    = false
-	case_sensitive      bool       = false
-	exclude_exts        []string   // Upper-case list of extensions to ignore.
-	exclude_dirs        []string   // List of directories to exclude.
-	filesizes_format    sizeformat = SIZE_NATURAL
-	use_colors          bool       = false
-	use_enhanced_colors bool       = true  // only applies if use_colors is on.
-	show_column_headers bool       = false // Show column headers (field names) defaults off. If on, only applies to beginning of each dir.
-	text_search_type    searchtype = SEARCH_NONE
-	text_regex          *regexp.Regexp
-	PdftotextPath       string = "*" // Uninitialized
-	TotalFiles          int
-	TotalBytes          int64
-	ColumnOrder         string = ""
-	pw7zip              string = ""
+	show_errors                    = false
+	debug_messages                 = false
+	progress_messages              = false // For long searches / recursions.
+	bare                 bool      = false // Only print filenames
+	include_path                   = false // Turn on in bare+ mode
+	sortby                         = sortorder{SORT_NAME, true}
+	directories_first              = true
+	listdirectories      bool      = true
+	listfiles            bool      = true
+	listInArchives       bool      = false
+	listhidden           bool      = true
+	only_executables     bool      = false // Set by -ax, limit to executable files only
+	listFoundText        bool      = false // Set by -ct, for list found text. Also implies find ALL matches in a file.
+	directory_header     bool      = true  // Print name of directory.  Usually with size_calculations
+	pathIsArchive        bool      = false
+	size_calculations    bool      = true // Print directory byte totals
+	recurse_directories  bool      = false
+	mindate              time.Time // Filter for min/max date, requires minmaxdatetype
+	maxdate              time.Time
+	minmaxdatetype       string = "m" // May be m = modified, a = accessed, c = created. Only one is allowed.
+	minsize              int64  = -1
+	maxsize              int64  = math.MaxInt64
+	matcher              glob.Glob
+	start_directory      string
+	file_mask            string
+	filenameParsed       bool       = false
+	namePadding          int        = 0
+	haveGlobber                     = false
+	case_sensitive       bool       = false
+	exclude_exts         []string   // Upper-case list of extensions to ignore.
+	exclude_dirs         []string   // List of directories to exclude.
+	filesizes_format     sizeformat = SIZE_NATURAL
+	use_colors           bool       = false
+	use_enhanced_colors  bool       = true  // only applies if use_colors is on.
+	show_column_headers  bool       = false // Show column headers (field names) defaults off. If on, only applies to beginning of each dir.
+	text_search_type     searchtype = SEARCH_NONE
+	text_regex           *regexp.Regexp
+	PdftotextPath        string = "*" // Uninitialized
+	TotalFiles           int
+	TotalBytes           int64
+	ColumnOrder          string = ""
+	pw7zip               string = ""
+	skipArchiveEntryMask bool   = false // If true, do not apply outer file mask to files inside an archive.
 )
 
 func ternaryString(condition bool, s1 string, s2 string) string {
@@ -286,6 +288,14 @@ func fileCheckMeetsConditions(target fileitem, foundText *string) bool {
 	return success
 }
 
+func archiveNameMatchesMask(name string) bool {
+	if !haveGlobber {
+		return false
+	}
+	testString := ternaryString(case_sensitive, name, strings.ToUpper(name))
+	return matcher.Match(testString)
+}
+
 // Does this file meet current conditions for inclusion?
 func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 	if (!listdirectories) && target.IsDir {
@@ -342,7 +352,7 @@ func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 	}
 
 	// If we don't have the globber, return true.  Otherwise match it.
-	if haveGlobber {
+	if haveGlobber && !(target.InArchive && skipArchiveEntryMask) {
 		testString := ternaryString(case_sensitive, filename, strings.ToUpper(filename))
 		if !matcher.Match(testString) {
 			return false, foundText
@@ -354,10 +364,15 @@ func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 		if target.IsDir {
 			return false, foundText
 		}
+		// If caller targeted archive container names (e.g. encrypted.7z), keep those
+		// containers in the root listing and apply text filtering to the archive entries.
+		if listInArchives && !target.InArchive && target.IsArchive() && archiveNameMatchesMask(target.Name) {
+			return true, foundText
+		}
 		if target.InArchive {
 			return archiveFileTextSearch(target)
 		} else if t_ext == "DOCX" || t_ext == "PPTX" || t_ext == "XLSX" || t_ext == "VSDX" {
-			conditionalPrint(debug_messages, "Embedded Zip text search on %s.\n", target.Name)
+			conditionalPrint(progress_messages, "Embedded Zip text search on %s.\n", target.Name)
 			embeddedFiles, err := filesInZipArchive(filepath.Join(target.Path, target.Name), false)
 			if err != nil {
 				conditionalPrint(show_errors, "Could not unzip %s: %s\n", target.Name, err.Error())
@@ -473,7 +488,7 @@ func archiveFileTextSearch(target fileitem) (bool, string) {
 	if target.Size > 1000000 {
 		return false, ""
 	}
-	conditionalPrint(debug_messages, "- Recursing into archive file: "+target.Path+"/"+target.Name+"\n")
+	conditionalPrint(progress_messages, "- Recursing into archive file: "+target.Path+"/"+target.Name+"\n")
 	switch FileIsArchiveType(target.Path) {
 	case ARCHIVE_ZIP:
 		data, err = extractZipFileBytes(target.Path, target.Name, 0, int(target.Size))
@@ -710,7 +725,10 @@ func extract7ZFileBytes(zippath string, filename string, offset int, length int)
 			curPos += length
 		}
 		// Pseudo-Seek done.  Uggah.
-		readCloser.Read(buffer)
+		_, err = readCloser.Read(buffer)
+		if (show_errors) && err != nil {
+			conditionalPrint(true, "7z Read Error "+zippath+" : "+filename+": "+err.Error())
+		}
 		break
 	}
 	return buffer, err
@@ -925,7 +943,7 @@ func filesInDirectory(target string) ListingSet {
 func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	var ls ListingSet
 
-	conditionalPrint(debug_messages, "Analyzing directory %s\n", target)
+	conditionalPrint(progress_messages, "Analyzing directory %s\n", target)
 	for _, exdir := range exclude_dirs {
 		parts := strings.Split(filepath.Clean(target), string(os.PathSeparator))
 		for _, part := range parts {
@@ -1019,7 +1037,10 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 		conditionalPrint(debug_messages, "Listing in Archives %s\n", ls.Archives)
 		sort.Strings(ls.Archives)
 		for _, d := range ls.Archives {
+			previousSkip := skipArchiveEntryMask
+			skipArchiveEntryMask = !pathIsArchive && archiveNameMatchesMask(d)
 			list_directory(filepath.Join(target, d), true, true)
+			skipArchiveEntryMask = previousSkip
 		}
 	}
 	// Handle sub directories
