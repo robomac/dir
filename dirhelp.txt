@@ -22,6 +22,10 @@ Filters:
         e.g. dir -ti=rAt *.txt will find txt files with RAT, rat or any combination.
     x=v,v... (or exclude=) Comma-separated list of extensions to skip over.  E.g. avoid text-search on 
         MOV, MP4 files.  Case-insensitive.  This can make text searching a lot faster.
+    type=v,v... (or types=) Comma-separated list of file type groups to include. Case-insensitive.
+        If set, files not in the resolved type extension lists are excluded.
+        Accepts names/abbreviations such as: documents, docs, doc, image, img, video, vid, archive, audio, data, config, code.
+        e.g. dir -type=docs,video -r
     xd=v,v... Comma-separated list of directories to skip recursing into. Does not support wild-cards or fragments. 
 
 Visibility:

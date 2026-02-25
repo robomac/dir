@@ -50,7 +50,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2026-02-25"
+const versionDate = "2026-02-25.2"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -181,6 +181,7 @@ var ( // Runtime configuration
 	haveGlobber                     = false
 	case_sensitive       bool       = false
 	exclude_exts         []string   // Upper-case list of extensions to ignore.
+	include_exts         []string   // Upper-case list of extensions to include. If set, others are excluded.
 	exclude_dirs         []string   // List of directories to exclude.
 	filesizes_format     sizeformat = SIZE_NATURAL
 	use_colors           bool       = false
@@ -309,6 +310,9 @@ func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 		return false, foundText
 	}
 	if len(exclude_exts) > 0 && slices.Contains(exclude_exts, target.Extension()) {
+		return false, foundText
+	}
+	if len(include_exts) > 0 && !slices.Contains(include_exts, target.Extension()) {
 		return false, foundText
 	}
 

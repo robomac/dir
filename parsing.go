@@ -157,6 +157,45 @@ func parseSizeRange(v string) {
 	}
 }
 
+// Values is the parameter passed in for type filters, e.g. "audio,video" or "docs".  Returns a list of upper-case extensions to include, e.g. "MP3", "MP4", "PDF", etc.
+// Multiple types (IMAGE,VIDEO) can be passed in, and the extensions will be combined.  Unknown types are ignored with an error message.
+func parseTypeFilters(values string) []string {
+	aliases := map[string]Filetype{
+		"audio": AUDIO, "audios": AUDIO, "au": AUDIO,
+		"archive": ARCHIVE, "archives": ARCHIVE, "arc": ARCHIVE, "ar": ARCHIVE, "zip": ARCHIVE, "zips": ARCHIVE,
+		"image": IMAGE, "images": IMAGE, "img": IMAGE, "im": IMAGE, "pic": IMAGE, "pics": IMAGE, "photo": IMAGE, "photos": IMAGE,
+		"video": VIDEO, "videos": VIDEO, "vid": VIDEO, "vids": VIDEO, "vi": VIDEO, "movie": VIDEO, "movies": VIDEO,
+		"document": DOCUMENT, "documents": DOCUMENT, "doc": DOCUMENT, "docs": DOCUMENT,
+		"data": DATA, "dataset": DATA, "datasets": DATA, "db": DATA,
+		"config": CONFIG, "configs": CONFIG, "configuration": CONFIG, "configurations": CONFIG, "cfg": CONFIG, "conf": CONFIG,
+		"code": CODE, "codes": CODE, "src": CODE, "source": CODE, "sources": CODE,
+	}
+	seen := map[string]bool{}
+	var resolvedExts []string
+
+	for _, raw := range strings.Split(values, ",") {
+		token := strings.ToLower(strings.TrimSpace(raw))
+		if token == "" {
+			continue
+		}
+		ft, ok := aliases[token]
+		if !ok {
+			conditionalPrint(show_errors, "Unknown type filter value: %s\n", raw)
+			continue
+		}
+		for _, ext := range strings.Split(Extensions[ft], ",") {
+			upper := strings.ToUpper(strings.TrimSpace(ext))
+			if upper == "" || seen[upper] {
+				continue
+			}
+			seen[upper] = true
+			resolvedExts = append(resolvedExts, upper)
+		}
+	}
+
+	return resolvedExts
+}
+
 func parseCmdLine() {
 	var args = os.Args[1:] // 0 is program name
 	// args is all strings that are space-separated.
@@ -317,6 +356,8 @@ func parseCmdLine() {
 				os.Exit(0)
 			case "exclude", "x":
 				exclude_exts = strings.Split(strings.ToUpper(values), ",")
+			case "type", "types":
+				include_exts = parseTypeFilters(values)
 			case "xd": // Exclude directory list
 				exclude_dirs = strings.Split(values, ",")
 			case "z":
