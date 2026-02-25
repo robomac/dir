@@ -50,7 +50,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2026-02-23"
+const versionDate = "2026-02-25"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
