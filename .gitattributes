@@ -1,2 +1,3 @@
 test_assets filter=lfs diff=lfs merge=lfs -text
 verify_search.sh filter=lfs diff=lfs merge=lfs -text
+test_assets/** filter=lfs diff=lfs merge=lfs -text

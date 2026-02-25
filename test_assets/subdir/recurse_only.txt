@@ -1,2 +1,3 @@
-This file exists for recursion testing only.
-Marker: RECURSE_SENTINEL_2026
+version https://git-lfs.github.com/spec/v1
+oid sha256:8f2d4af4608db0c70c8e6142edb926909d1c38b09246dc8547f210587cdf68e7
+size 75
