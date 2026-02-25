@@ -72,7 +72,7 @@ Output Formatting:
         + (enhanced) is the default if LS_COLORS is defined.  Regular (non-enhanced) would just be "-G"
            
            Note that this ignores extension-configuration of LS_COLORS, e.g. export LS_COLORS=$LS_COLORS:"*.ogg=01;35":"*.mp3=01;35"
-           Instead we have a custom extension to it, ac for archives, au for audio and im for image/video files.
+           Instead we have a custom extension to it, ac for archives, au for audio, im for image files and vi for video files.
 
     b{+} = bare (filenames only, e.g. for use with xargs or other inputs), one per line.  
         b+ includes the path to the filename.

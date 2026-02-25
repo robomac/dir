@@ -105,6 +105,7 @@ const (
 	AUDIO                 // 1 ...
 	ARCHIVE
 	IMAGE
+	VIDEO
 	DOCUMENT // Enhanced start here
 	DATA
 	CONFIG
@@ -117,24 +118,25 @@ const (
 )
 
 func (ft Filetype) String() string {
-	return [...]string{"None", "Audio", "Archive", "Image/Video", "Document", "Data", "Configuration", "Source Code", "Directory", "Executable", "SymLink", "Hidden", "Default"}[ft]
+	return [...]string{"None", "Audio", "Archive", "Image", "Video", "Document", "Data", "Configuration", "Source Code", "Directory", "Executable", "SymLink", "Hidden", "Default"}[ft]
 }
 
 // Notes: See https://docs.fileformat.com for a great list.  Some are value judgements.
 var Extensions = map[Filetype]string{
-	AUDIO:   ",aac,au,flac,m3u8,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,spx,xspf,",
+	AUDIO:   ",aac,au,flac,mid,midi,mka,mp3,mpc,ogg,ra,wav,axa,oga,opus,spx,xspf,",
 	ARCHIVE: ",7z,ace,apk,arj,bz,bz2,cpio,deb,dmg,dz,gz,jar,lz,lzh,lzma,msi,rar,rpm,rz,tar,taz,tbz,tbz2,tgz,tlz,txz,tz,xz,z,Z,zip,zoo,",
-	IMAGE:   ",anx,asf,avi,axv,bmp,cgm,dib,dl,emf,flc,fli,flv,gif,gl,jpeg,jpg,m2v,m4v,mkv,mng,mov,mp4,mp4v,mpeg,mpg,nuv,ogm,ogv,ogx,pbm,pcx,pdn,pgm,png,ppm,qt,rm,rmvb,svg,svgz,tga,tif,tiff,vob,wmv,xbm,xcf,xpm,xwd,yuv,",
+	IMAGE:   ",bmp,cgm,dib,dl,emf,gif,gl,jpeg,jpg,mng,pbm,pcx,pdn,pgm,png,ppm,svg,svgz,tga,tif,tiff,xbm,xcf,xpm,xwd,",
+	VIDEO:   ",3g2,3gp,anx,asf,avi,axv,flc,fli,flv,m2ts,m2v,m4v,mkv,mov,mp4,mp4v,mpeg,mpg,mts,nuv,ogm,ogv,ogx,qt,rm,rmvb,ts,vob,webm,wmv,yuv,",
 	// The following are "Enhanced" options.
-	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mobi,msg,odt,ofx,one,pdf,ppt,pptx,ps,pub,tex,txt,vsdx,xls,xlsx,",
-	DATA:     ",cdb,csv,dat,db3,dbf,graphql,json,log,rpt,sdf,sql,xml,",
+	DOCUMENT: ",doc,docx,ebk,epub,html,htm,markdown,mbox,mbp,md,mht,mhtml,mobi,msg,odt,ofx,one,pages,pdf,ppt,pptx,ps,pub,rtf,tex,txt,vsdx,xls,xlsx,",
+	DATA:     ",cdb,csv,dat,db3,dbf,graphql,json,log,m3u8,rpt,sdf,sql,xml,",
 	CONFIG:   ",adp,ant,cfg,confit,ini,prefs,rc,tcl,yaml,",
 	CODE:     ",ahk,applescript,asm,au3,bas,bash,bat,c,cmake,cmd,coffee,cpp,cs,cxx,dockerfile,elf,es,exe,go,gradle,groovy,gvy,h,hpp,hxx,inc,ino,java,js,kt,ktm,kts,lua,m,mak,mm,perl,ph,php,pl,pp,ps1,psm1,py,rake,rb,rbw,rbuild,rbx,rs,ru,ruby,scpt,sh,ts,tsx,v,vb,vbs,vhd,vhdl,zsh,",
 }
 
 // Could use a slice here, since it's indexing in by int, but naming the spots makes it clearer.
 var FileTypeSortOrder = map[Filetype]int{DIRECTORY: 0, HIDDEN: 1, NONE: 2, DEFAULT: 3, CODE: 4, EXECUTABLE: 5, CONFIG: 6,
-	DATA: 7, DOCUMENT: 8, AUDIO: 9, IMAGE: 10, ARCHIVE: 11}
+	DATA: 7, DOCUMENT: 8, AUDIO: 9, IMAGE: 10, VIDEO: 11, ARCHIVE: 12}
 
 // By convention, but not typically part of LS_COLORS, archives are bold red, audio is cyan, media and some others are bold magenta.
 // Colors that get mapped to extensions.
@@ -143,7 +145,7 @@ var FileTypeSortOrder = map[Filetype]int{DIRECTORY: 0, HIDDEN: 1, NONE: 2, DEFAU
 // BG: 40=black 41=red 42=green 43=yellow 44=blue 45=magenta 46=cyan 47=white
 var FileColors = map[Filetype]string{
 	NONE: "0", DIRECTORY: "1;36", DEFAULT: "37",
-	EXECUTABLE: "31", SYMLINK: "35", ARCHIVE: "01;31", IMAGE: "01;35", AUDIO: "00;36",
+	EXECUTABLE: "31", SYMLINK: "35", ARCHIVE: "01;31", IMAGE: "01;35", VIDEO: "01;34", AUDIO: "00;36",
 	// Extensions
 	DOCUMENT: "01;32", DATA: "32", CONFIG: "01;37", CODE: "01;34",
 }
@@ -241,6 +243,8 @@ func mapColors() {
 			ft = DEFAULT
 		case "im":
 			ft = IMAGE
+		case "vi":
+			ft = VIDEO
 		case "ln":
 			ft = SYMLINK
 		}
