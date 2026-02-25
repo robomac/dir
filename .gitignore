@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go build/test artifacts
+bin/
+dist/
+coverage.out
+*.test
+*.prof
+
+# Local binaries produced during development
+dir
+dir.exe
