@@ -272,7 +272,9 @@ func resolveCommand(cmd string) string {
 	_, err = os.Stat(path)
 	if err == nil {
 		conditionalPrint(debug_messages, "Found "+cmd+" at "+path+".\n")
-		return path
+		return path4
+	} else {
+		conditionalPrint(debug_messages, "No "+cmd+" at "+path+".\n")
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		conditionalPrint(show_errors, "Found but could not open %s: %s\n", cmd, err.Error())
@@ -281,6 +283,8 @@ func resolveCommand(cmd string) string {
 	if err == nil {
 		conditionalPrint(debug_messages, "Found "+cmd+" at "+path+".\n")
 		return path
+	} else {
+		conditionalPrint(debug_messages, "No "+cmd+" at "+path+".\n")
 	}
 	return ""
 }
