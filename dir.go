@@ -475,7 +475,12 @@ func PDFText(filepath string, ignoreExtension bool) (string, error) {
 	}
 	// Or do we need to initialize this value?
 	if PdftotextPath == "*" {
-		PdftotextPath = resolveCommand("pdftotext")
+		if runtime.GOOS == "windows" {
+			PdftotextPath = resolveCommand("pdftotext.exe")
+		} else {
+			PdftotextPath = resolveCommand("pdftotext")
+		}
+
 		if len(PdftotextPath) == 0 {
 			conditionalPrint(debug_messages, "Could not find pdftotext.  PDF text will not be found.\n")
 			conditionalPrint(show_errors, "Could not find pdftotext.  PDF text will not be found.\n")
