@@ -272,7 +272,7 @@ func resolveCommand(cmd string) string {
 	_, err = os.Stat(path)
 	if err == nil {
 		conditionalPrint(debug_messages, "Found "+cmd+" at "+path+".\n")
-		return path4
+		return path
 	} else {
 		conditionalPrint(debug_messages, "No "+cmd+" at "+path+".\n")
 	}
