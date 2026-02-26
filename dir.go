@@ -1,7 +1,7 @@
 package main
 
 /*
-Copyright 2023, 2024, 2025, RoboMac
+Copyright 2023, 2024, 2025, 2026 RoboMac
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -44,13 +45,14 @@ import (
 
 /* Potential Enhancements: Allow defining the type sort order.  mdfind integration on the mac, for wider file type support. */
 /* PDF Notes: None of the Go-based PDF libraries worked on newer PDF files, so using pdftotext */
+// Run tests with go test ./...
 
 // DO NOT DELETE THIS "COMMENT"; it includes the file.
 //
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2026-02-25.2"
+const versionDate = "2026-02-26"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -286,7 +288,7 @@ func resolveCommand(cmd string) string {
 func fileCheckMeetsConditions(target fileitem, foundText *string) bool {
 	success := false
 	var textFound string
-	success, textFound = fileMeetsConditions(target)
+	success, textFound = fileMeetsConditions(target, false)
 	if success {
 		*foundText = textFound
 	}
@@ -302,7 +304,7 @@ func archiveNameMatchesMask(name string) bool {
 }
 
 // Does this file meet current conditions for inclusion?
-func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
+func fileMeetsConditions(target fileitem, noTextSearch bool) (isFound bool, foundText string) {
 	if (!listdirectories) && target.IsDir {
 		return false, foundText
 	}
@@ -368,7 +370,8 @@ func fileMeetsConditions(target fileitem) (isFound bool, foundText string) {
 	}
 
 	t_ext := target.Extension()
-	if text_search_type != SEARCH_NONE {
+	// Only text search if there is one and it isn't overridden. It's overridden for 7z initial checks.
+	if (text_search_type != SEARCH_NONE) && !noTextSearch {
 		if target.IsDir {
 			return false, foundText
 		}
@@ -489,12 +492,12 @@ func PDFText(filepath string, ignoreExtension bool) (string, error) {
 	return stdout.String(), err
 }
 
-// Load and search one file in the zip, with a maximum size.
-func archiveFileTextSearch(target fileitem) (bool, string) {
+// Load one file in the archive into bytes, with a maximum size.
+func archiveFileBytes(target fileitem) ([]byte, error) {
 	var data []byte
 	var err error
 	if target.Size > 1000000 {
-		return false, ""
+		return nil, errors.New("archive entry too large")
 	}
 	conditionalPrint(progress_messages, "- Recursing into archive file: "+target.Path+"/"+target.Name+"\n")
 	switch FileIsArchiveType(target.Path) {
@@ -506,17 +509,22 @@ func archiveFileTextSearch(target fileitem) (bool, string) {
 		data, err = extractTgzFileBytes(target.Path, target.Name, 0, int(target.Size))
 	default:
 		// No handler found.
-		return false, ""
+		return nil, errors.New("unsupported archive type")
 	}
 	if err != nil {
-		return false, ""
+		return nil, err
 	}
+	return data, nil
+}
+
+// Search archive entry contents that are already loaded in memory.
+func archiveFileTextSearchFromData(target fileitem, data []byte) (bool, string) {
 	var t_ext string = target.Extension()
 	if t_ext == "DOCX" || t_ext == "PPTX" || t_ext == "XLSX" || t_ext == "VSDX" || t_ext == "PDF" {
 		// Write to a temp file so we can more easily uncompress the docx or run a util on the PDF
 		var err error
 		var pfile *os.File
-		pfile, err = os.CreateTemp("", target.Name)
+		pfile, err = os.CreateTemp("", sanitizeTempPattern(target.Name))
 		if err == nil {
 			pfilename := pfile.Name()
 			pfile.Write(data)
@@ -554,10 +562,33 @@ func archiveFileTextSearch(target fileitem) (bool, string) {
 					}
 				}
 			}
-		} // temp file creation success
+		} else { // temp file creation success
+			conditionalPrint(show_errors, "Could not create temp file for text search on %s: %s\n", target.Name, err.Error())
+		}
+
 	} // office or pdf file
 	//return text_regex.Match(data)
 	return matchTextBuffer(text_regex, data, listFoundText)
+}
+
+func sanitizeTempPattern(name string) string {
+	// Archive entries may include nested path segments. CreateTemp pattern must not contain separators.
+	pattern := strings.ReplaceAll(name, "/", "_")
+	pattern = strings.ReplaceAll(pattern, "\\", "_")
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || pattern == "." {
+		return "archive-entry-*"
+	}
+	return pattern
+}
+
+// Load and search one file in the archive.
+func archiveFileTextSearch(target fileitem) (bool, string) {
+	data, err := archiveFileBytes(target)
+	if err != nil {
+		return false, ""
+	}
+	return archiveFileTextSearchFromData(target, data)
 }
 
 // Searches the file in chunks.
@@ -695,6 +726,7 @@ func extractZipFileBytes(zippath string, filename string, offset int, length int
 	return buffer, err
 }
 
+// Extracts the bytes of the file, if necessary decrypting first.  Note that 7z does not support seeking, so we have to read and discard until we get to the offset.
 func extract7ZFileBytes(zippath string, filename string, offset int, length int) ([]byte, error) {
 	zipReader, err := sevenzip.OpenReaderWithPassword(zippath, pw7zip)
 	if err != nil {
@@ -831,6 +863,9 @@ func filesInZipArchive(filename string, checkConditions bool) (ListingSet, error
 	return ls, err
 }
 
+// Lists files in the archive. If we aren't looking into the files, this is fast.
+// But if we are doing text search, because it was loading the contents distinctly and there's no seek, it got slow on large files.
+// See linearFilesIn7ZArchive for an optimized version that does the text search while loading the file, and skips loading if it doesn't meet non-text conditions.
 func filesIn7ZArchive(filename string) (ListingSet, error) {
 	var ls ListingSet
 	zipReader, err := sevenzip.OpenReaderWithPassword(filename, pw7zip)
@@ -864,6 +899,172 @@ func filesIn7ZArchive(filename string) (ListingSet, error) {
 	}
 	return ls, err
 }
+
+/***************************************************/
+/* 7z SevenZip linear optimization for large files */
+/***************************************************/
+
+type SevenZSkipMode int
+
+const (
+	SevenZSkipNoop SevenZSkipMode = iota
+	SevenZSkipDrain
+)
+
+type SevenZIterator struct {
+	zr       *sevenzip.ReadCloser
+	index    int
+	skipMode SevenZSkipMode
+}
+
+func linearFilesIn7ZArchive(filename string) (ListingSet, error) {
+	var ls ListingSet
+	it, err := SevenZOpenIterator(filename, pw7zip, SevenZSkipNoop)
+	if err != nil {
+		var re *sevenzip.ReadError
+		if show_errors {
+			if errors.As(err, &re) && re.Encrypted {
+				fmt.Printf("Error: Invalid password for %s.\n", filename)
+			} else {
+				fmt.Printf("Error: Could not open %s.  %s\n", filename, err.Error())
+			}
+		}
+		return ls, err
+	}
+	defer it.Close()
+
+	for {
+		fileInZip, ok := it.SevenZNext()
+		if !ok {
+			break
+		}
+
+		if fileInZip.FileInfo().IsDir() {
+			continue // Safe to skip, because the filenames will include the folder names when we get to them.
+		}
+		var item fileitem = fileitem{filename, fileInZip.Name, fileInZip.FileInfo().Size(),
+			fileInZip.Modified, time.Time{}, time.Time{}, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE, ""}
+		// Check file without text search first.
+		debugBreak := strings.Contains(item.Name, "20231206-2036") // Used only because Delve can't condition on functions like strings.Contains();.
+		_ = debugBreak
+		meetsNonTextConditions, _ := fileMeetsConditions(item, true)
+		if meetsNonTextConditions {
+			contents, err := it.SevenZReadAll(fileInZip)
+			if err != nil {
+				return ls, err
+			}
+
+			var foundText string
+			if text_search_type != SEARCH_NONE {
+				matched, textMatches := archiveFileTextSearchFromData(item, contents)
+				if !matched {
+					continue
+				}
+				foundText = textMatches
+			}
+
+			item.FoundText = foundText
+			ls.MatchedFiles = append(ls.MatchedFiles, item)
+			conditionalPrint(progress_messages, " Matched: %s\n", item.ToString())
+			ls.Filecount++
+			ls.Bytesfound += item.Size
+		} else {
+			if err := it.SevenZSkip(fileInZip); err != nil {
+				return ls, err
+			}
+		}
+	}
+	return ls, err
+}
+
+func SevenZOpenIterator(path string, password string, skipMode SevenZSkipMode) (*SevenZIterator, error) {
+	zr, err := sevenzip.OpenReaderWithPassword(path, password)
+	if err != nil {
+		return nil, err
+	}
+	return &SevenZIterator{
+		zr:       zr,
+		index:    0,
+		skipMode: skipMode,
+	}, nil
+}
+
+func (it *SevenZIterator) Close() error {
+	if it.zr == nil {
+		return nil
+	}
+	err := it.zr.Close()
+	it.zr = nil
+	return err
+}
+
+// SevenZNext returns the next file entry in archive order.
+// ok == false means iteration is complete.
+func (it *SevenZIterator) SevenZNext() (*sevenzip.File, bool) {
+	if it.zr == nil || it.index >= len(it.zr.File) {
+		return nil, false
+	}
+	f := it.zr.File[it.index]
+	it.index++
+	return f, true
+}
+
+// SevenZReadAll reads the full contents of a file into memory.
+func (it *SevenZIterator) SevenZReadAll(f *sevenzip.File) ([]byte, error) {
+	if f.FileInfo().IsDir() {
+		return nil, nil
+	}
+
+	size := f.FileInfo().Size()
+	if size < 0 {
+		size = 0
+	}
+	if size > int64(math.MaxInt) {
+		return nil, fmt.Errorf("SevenZ file too large for memory buffer: %d bytes", size)
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	var buf bytes.Buffer
+	buf.Grow(int(size))
+
+	_, err = io.Copy(&buf, rc)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// SevenZSkip advances according to skip mode.
+// SevenZSkipNoop: do nothing.
+// SevenZSkipDrain: force decoding by draining to io.Discard.
+func (it *SevenZIterator) SevenZSkip(f *sevenzip.File) error {
+	if it.skipMode == SevenZSkipNoop || f.FileInfo().IsDir() {
+		return nil
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+
+	_, copyErr := io.Copy(io.Discard, rc)
+	closeErr := rc.Close()
+
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
+}
+
+/***************************************************/
+/* End of 7z SevenZip optimization for large files */
+/***************************************************/
 
 func filesInTgzArchive(filename string) (ListingSet, error) {
 	var ls ListingSet
@@ -972,7 +1173,7 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 				ls, err = filesInTgzArchive(target)
 				conditionalPrint(debug_messages, "Archive %s type tgz\n", target)
 			case ARCHIVE_7Z:
-				ls, err = filesIn7ZArchive(target)
+				ls, err = linearFilesIn7ZArchive(target) // was filesIn7ZArchive(target) - optimized for large files with text search
 				conditionalPrint(debug_messages, "Archive %s type 7z\n", target)
 			}
 		} else {
@@ -1023,6 +1224,7 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	TotalBytes += ls.Bytesfound
 	TotalFiles += ls.Filecount
 	// Output results.  Don't print directory header or footer if no files in a recursed directory
+	conditionalPrint(progress_messages && recursed && isArchive, "\nComplete scanning "+target+".")
 	if (!recursed || len(ls.MatchedFiles) > 0) && directory_header {
 		fmt.Printf("\n   Directory of %s\n", target)
 		if listfiles {
