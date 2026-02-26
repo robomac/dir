@@ -271,6 +271,7 @@ func resolveCommand(cmd string) string {
 	path = filepath.Join(path, cmd)
 	_, err = os.Stat(path)
 	if err == nil {
+		conditionalPrint(debug_messages, "Found "+cmd+" at "+path+".\n")
 		return path
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -278,6 +279,7 @@ func resolveCommand(cmd string) string {
 	}
 	path, err = exec.LookPath(cmd)
 	if err == nil {
+		conditionalPrint(debug_messages, "Found "+cmd+" at "+path+".\n")
 		return path
 	}
 	return ""
