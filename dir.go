@@ -52,7 +52,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2026-02-26"
+const versionDate = "2026-02-26.2"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -956,17 +956,17 @@ func linearFilesIn7ZArchive(filename string) (ListingSet, error) {
 		var item fileitem = fileitem{filename, fileInZip.Name, fileInZip.FileInfo().Size(),
 			fileInZip.Modified, time.Time{}, time.Time{}, fileInZip.FileInfo().IsDir(), fileInZip.Mode(), "", true, NONE, ""}
 		// Check file without text search first.
-		debugBreak := strings.Contains(item.Name, "20231206-2036") // Used only because Delve can't condition on functions like strings.Contains();.
-		_ = debugBreak
 		meetsNonTextConditions, _ := fileMeetsConditions(item, true)
+		// If SEARCH_NONE, add to the list right now and skip
 		if meetsNonTextConditions {
-			contents, err := it.SevenZReadAll(fileInZip)
-			if err != nil {
-				return ls, err
-			}
 
 			var foundText string
 			if text_search_type != SEARCH_NONE {
+				contents, err := it.SevenZReadAll(fileInZip)
+				if err != nil {
+					return ls, err
+				}
+
 				matched, textMatches := archiveFileTextSearchFromData(item, contents)
 				if !matched {
 					continue
