@@ -41,6 +41,9 @@ Filters:
         e.g. dir -ti=rAt *.txt will find txt files with RAT, rat or any combination.
     x=v,v... (or exclude=) Comma-separated list of extensions to skip over.  E.g. avoid text-search on 
         MOV, MP4 files.  Case-insensitive.  This can make text searching a lot faster.
+    xd=v,v... Comma-separated list of directories to skip recursing into. Supports * and ? wildcards.
+        e.g. -xd=.* skips all dot-folders (.git, .vscode, etc.)
+        e.g. -xd=node_modules,.* skips node_modules and all dot-folders.
 
 Visibility:
     d{+|-} = List Directories.  + is ONLY list directories, - exludes them.  Default is list files and directories.

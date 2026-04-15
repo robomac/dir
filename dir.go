@@ -52,7 +52,7 @@ import (
 //go:embed dirhelp.txt
 var helptext string
 
-const versionDate = "2026-02-26.2"
+const versionDate = "2026-04-15.1"
 
 const (
 	COLUMN_DATEMODIFIED = "m"
@@ -178,18 +178,18 @@ var ( // Runtime configuration
 	matcher              glob.Glob
 	start_directory      string
 	file_mask            string
-	filenameParsed       bool       = false
-	namePadding          int        = 0
-	haveGlobber                     = false
-	case_sensitive       bool       = false
-	exclude_exts         []string   // Upper-case list of extensions to ignore.
-	include_exts         []string   // Upper-case list of extensions to include. If set, others are excluded.
-	exclude_dirs         []string   // List of directories to exclude.
-	filesizes_format     sizeformat = SIZE_NATURAL
-	use_colors           bool       = false
-	use_enhanced_colors  bool       = true  // only applies if use_colors is on.
-	show_column_headers  bool       = false // Show column headers (field names) defaults off. If on, only applies to beginning of each dir.
-	text_search_type     searchtype = SEARCH_NONE
+	filenameParsed       bool        = false
+	namePadding          int         = 0
+	haveGlobber                      = false
+	case_sensitive       bool        = false
+	exclude_exts         []string    // Upper-case list of extensions to ignore.
+	include_exts         []string    // Upper-case list of extensions to include. If set, others are excluded.
+	exclude_dir_globs    []glob.Glob // Compiled glob patterns for directories to exclude.
+	filesizes_format     sizeformat  = SIZE_NATURAL
+	use_colors           bool        = false
+	use_enhanced_colors  bool        = true  // only applies if use_colors is on.
+	show_column_headers  bool        = false // Show column headers (field names) defaults off. If on, only applies to beginning of each dir.
+	text_search_type     searchtype  = SEARCH_NONE
 	text_regex           *regexp.Regexp
 	PdftotextPath        string = "*" // Uninitialized
 	TotalFiles           int
@@ -1164,10 +1164,10 @@ func list_directory(target string, recursed bool, isArchive bool) (err error) {
 	var ls ListingSet
 
 	conditionalPrint(progress_messages, "Analyzing directory %s\n", target)
-	for _, exdir := range exclude_dirs {
-		parts := strings.Split(filepath.Clean(target), string(os.PathSeparator))
+	parts := strings.Split(filepath.Clean(target), string(os.PathSeparator))
+	for _, pattern := range exclude_dir_globs {
 		for _, part := range parts {
-			if part == exdir {
+			if pattern.Match(part) {
 				conditionalPrint(debug_messages, "Excluding directory %s\n", target)
 				return nil
 			}

@@ -26,7 +26,9 @@ Filters:
         If set, files not in the resolved type extension lists are excluded.
         Accepts names/abbreviations such as: documents, docs, doc, image, img, video, vid, archive, audio, data, config, code.
         e.g. dir -type=docs,video -r
-    xd=v,v... Comma-separated list of directories to skip recursing into. Does not support wild-cards or fragments. 
+    xd=v,v... Comma-separated list of directories to skip recursing into. Supports * and ? wildcards.
+        e.g. -xd=.* skips all dot-folders (.git, .vscode, etc.)
+        e.g. -xd=node_modules,.* skips node_modules and all dot-folders.
 
 Visibility:
     d{+|-} = List Directories.  + is ONLY list directories, - exludes them.  Default is list files and directories.

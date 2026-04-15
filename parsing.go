@@ -358,8 +358,10 @@ func parseCmdLine() {
 				exclude_exts = strings.Split(strings.ToUpper(values), ",")
 			case "type", "types":
 				include_exts = parseTypeFilters(values)
-			case "xd": // Exclude directory list
-				exclude_dirs = strings.Split(values, ",")
+			case "xd": // Exclude directory list — supports glob wildcards (e.g. .* to skip all dot-folders)
+				for _, pattern := range strings.Split(values, ",") {
+					exclude_dir_globs = append(exclude_dir_globs, glob.MustCompile(pattern))
+				}
 			case "z":
 				listInArchives = true
 			case "zpw":
